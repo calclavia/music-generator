@@ -1,3 +1,5 @@
 pretty_midi
 keras
 gym
+tensorflow
+joblib
