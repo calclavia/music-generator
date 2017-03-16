@@ -4,8 +4,10 @@ from collections import deque
 from util import *
 from midi_util import *
 from music import NUM_CLASSES, NOTES_PER_BAR
-from dataset import load_melodies, process_melody, compute_beat, build_history_buffer
+from dataset import load_music_styles, compute_beat, build_history_buffer
 from constants import *
+from music import MIN_NOTE
+import random
 import math
 import argparse
 import itertools
@@ -26,6 +28,8 @@ def main():
     parser.add_argument('--timesteps', metavar='t', type=int,
                         default=8,
                         help='Number of timesteps')
+    parser.add_argument('--temperature', type=float, default=1,
+                        help='Temperature used to scale randomness')
 
     args = parser.parse_args()
 
@@ -44,7 +48,7 @@ def main():
     if args.prime:
         print('Loading priming melodies')
         # Inspiration melodies
-        inspirations = list(map(process_melody, load_melodies(styles, limit=samples * 10, transpose=True)))
+        inspirations = [x for s in load_music_styles() for x in s]
 
     with tf.device('/cpu:0'):
         model = load_supervised_model(time_steps, args.model)
@@ -60,32 +64,37 @@ def main():
 
             if args.prime:
                 while inspiration is None or len(inspiration) < time_steps:
-                    inspiration = np.random.choice(inspirations)
+                    inspiration = random.choice(inspirations)
 
-            composition = generate(model, time_steps, style / np.sum(style), bars, inspiration)
-            mf = midi_encode_melody(composition)
-            midi.write_midifile('out/melody {} {}.mid'.format(style.astype(int), i), mf)
+            composition = generate(model, time_steps, style / np.sum(style), bars, inspiration, args.temperature)
+            #mf = midi_encode_melody(composition)
+            #midi.write_midifile('out/melody {} {}.mid'.format(style.astype(int), i), mf)
+
+            # Shift notes back up
+            composition = np.concatenate((np.zeros((len(composition), MIN_NOTE)), composition), axis=1)
+
+            mf = midi_encode(composition)
+            midi.write_midifile('out/music {} {}.mid'.format(style.astype(int), i), mf)
 
 
-def generate(model, time_steps, style, bars, inspiration=None):
+def generate(model, time_steps, style, bars, inspiration, temperature):
     """
     Generates a sequence
     """
     print('Generating music with style {} for {} bars:'.format(style, bars))
-    # TODO: Mask the model output for Wavenet
-    # out = Lambda(lambda x: x[:, -1, :], output_shape=(out._keras_shape[-1],))(out)
     # Prime the time steps
-    history = build_history_buffer(time_steps, NUM_CLASSES, NOTES_PER_BAR, style, prime_beats=False)
+    history = build_history_buffer(time_steps, NUM_CLASSES, NOTES_PER_BAR, style)
 
     def make_inputs():
+        # return [np.repeat(np.expand_dims(x, 0), 1, axis=0) for x in zip(*history)]
         return [np.repeat(np.expand_dims(x, 0), BATCH_SIZE, axis=0) for x in zip(*history)]
 
     if inspiration is not None:
-        print('Priming melody')
+        print('Priming...')
         # Prime the RNN for one bar
         for i in range(NOTES_PER_BAR):
             model.predict(make_inputs())
-            note_hot = one_hot(inspiration[i], NUM_CLASSES)
+            note_hot = inspiration[i]#one_hot(inspiration[i], NUM_CLASSES)
             beat_input = compute_beat(i, NOTES_PER_BAR)
             completion_input = np.array([i / (len(inspiration) - 1)])
             # TODO: This completion may not be good, since it resets to 0
@@ -93,6 +102,7 @@ def generate(model, time_steps, style, bars, inspiration=None):
             history.append([note_hot, beat_input, completion_input, style])
 
     # Compose
+    print('Composing...')
     composition = []
 
     N = NOTES_PER_BAR * bars
@@ -100,17 +110,30 @@ def generate(model, time_steps, style, bars, inspiration=None):
         # Batchify the input
         results = model.predict(make_inputs())
         prob_dist = results[0]
-        note = np.random.choice(len(prob_dist), p=prob_dist)
+        num_outputs = len(prob_dist)
 
-        note_hot = one_hot(note, NUM_CLASSES)
+        # Inverse sigmoid
+        x = -np.log(1 / np.array(prob_dist) - 1)
+        # Apply temperature to sigmoid function
+        prob_dist = 1 / (1 + np.exp(-x / temperature))
+
+        note = np.zeros(num_outputs)
+
+        for i in range(num_outputs):
+            note[i] = 1 if random.random() < prob_dist[i] else 0
+
+        """
+        note[prob_dist >= 0.5] = 1
+        note[prob_dist < 0.5] = 0
+        """
+
         beat_input = compute_beat(i, NOTES_PER_BAR)
         completion_input = np.array([i / (N - 1)])
-        history.append([note_hot, beat_input, completion_input, style])
+        history.append([note, beat_input, completion_input, style])
 
         composition.append(note)
 
     model.reset_states()
-    print(composition)
     return composition
 
 if __name__ == '__main__':

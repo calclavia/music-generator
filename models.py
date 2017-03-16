@@ -1,230 +1,359 @@
-# Defines the models used in the experiments
-
 import numpy as np
-from keras.layers import Dense, Input, merge, Activation, Dropout, Flatten, Lambda
-from keras.models import Model
-from keras.layers.convolutional import AtrousConvolution1D, Convolution1D
-from keras.layers.recurrent import GRU
-from keras.layers.normalization import BatchNormalization
-from keras import backend as K
-from keras.utils.np_utils import conv_output_length
-from keras.optimizers import RMSprop, Adam
-
+import tensorflow as tf
+from music import NOTES_PER_BAR, MAX_NOTE, MIN_NOTE, NUM_OCTAVES, OCTAVE
+from constants import NUM_STYLES
 from util import one_hot
-from constants import NUM_STYLES, BATCH_SIZE
-from music import NUM_CLASSES, NOTES_PER_BAR, NUM_KEYS
-from keras.models import load_model
+from tqdm import tqdm
+from dataset import compute_beat, compute_completion
 
+from keras.layers import Activation
+from keras.layers.core import Flatten, Reshape, RepeatVector, Dense
+from keras.layers.convolutional import Conv1D
+from keras.layers.pooling import MaxPooling1D
 
-class CausalAtrousConvolution1D(AtrousConvolution1D):
+NUM_NOTES = MAX_NOTE - MIN_NOTE
 
-    def __init__(self, nb_filter, filter_length, init='glorot_uniform',
-                 activation=None, weights=None, border_mode='valid',
-                 subsample_length=1, atrous_rate=1, W_regularizer=None,
-                 b_regularizer=None, activity_regularizer=None,
-                 W_constraint=None, b_constraint=None, bias=True,
-                 causal=False, **kwargs):
-        super(CausalAtrousConvolution1D, self).__init__(nb_filter, filter_length, init, activation, weights,
-                                                        border_mode, subsample_length, atrous_rate, W_regularizer,
-                                                        b_regularizer, activity_regularizer, W_constraint, b_constraint,
-                                                        bias, **kwargs)
-        self.causal = causal
-        if self.causal and border_mode != 'valid':
-            raise ValueError("Causal mode dictates border_mode=valid.")
+def repeat(x, batch_size, time_steps):
+    return np.reshape(np.repeat(x, batch_size * time_steps), [batch_size, time_steps, -1])
 
-    def get_output_shape_for(self, input_shape):
-        input_length = input_shape[1]
-
-        if self.causal:
-            input_length += self.atrous_rate * (self.filter_length - 1)
-
-        length = conv_output_length(input_length,
-                                    self.filter_length,
-                                    self.border_mode,
-                                    self.subsample[0],
-                                    dilation=self.atrous_rate)
-
-        return (input_shape[0], length, self.nb_filter)
-
-    def call(self, x, mask=None):
-        if self.causal:
-            x = K.asymmetric_temporal_padding(
-                x, self.atrous_rate * (self.filter_length - 1), 0)
-        return super(CausalAtrousConvolution1D, self).call(x, mask)
-
-
-def residual_block(x, nb_filters, s, dilation):
-    original_x = x
-    # Tanh + Sigmoid gating
-    tanh_out = CausalAtrousConvolution1D(nb_filters, 2, atrous_rate=2 ** dilation, causal=True,
-                                         name='dilated_conv_%d_tanh_s%d' % (2 ** dilation, s))(x)
-    tanh_out = BatchNormalization()(tanh_out)
-    tanh_out = Activation('tanh')(tanh_out)
-
-    sigm_out = CausalAtrousConvolution1D(nb_filters, 2, atrous_rate=2 ** dilation, causal=True,
-                                         name='dilated_conv_%d_sigm_s%d' % (2 ** dilation, s))(x)
-    sigm_out = BatchNormalization()(sigm_out)
-    sigm_out = Activation('sigmoid')(sigm_out)
-
-    x = merge([tanh_out, sigm_out], mode='mul',
-              name='gated_activation_%d_s%d' % (dilation, s))
-    # ReLU Alternative
-    # x = CausalAtrousConvolution1D(nb_filters, 2, atrous_rate=2 ** dilation, causal=True, name='dilated_conv_%d_tanh_s%d' % (2 ** dilation, s))(x)
-    # x = BatchNormalization()(x)
-    # x = Activation('relu')(x)
-
-    res_x = Convolution1D(nb_filters, 1, border_mode='same')(x)
-    res_x = BatchNormalization()(res_x)
-    skip_x = Convolution1D(nb_filters, 1, border_mode='same')(x)
-    skip_x = BatchNormalization()(skip_x)
-
-    res_x = merge([original_x, res_x], mode='sum')
-    return res_x, skip_x
-
-
-def wavenet(time_steps, nb_stacks=1, dilation_depth=5, nb_filters=64, nb_output_bins=NUM_CLASSES):
-    inputs, primary, context = build_inputs(time_steps)
-
-    # Create a distributerd representation of context
-    context = Convolution1D(nb_output_bins, 1)(context)
-    context = BatchNormalization()(context)
-    context = Activation('relu')(context)
-
-    out = primary
-    out = CausalAtrousConvolution1D(nb_filters, 2, atrous_rate=1, border_mode='valid',
-                                    causal=True, name='initial_causal_conv')(out)
-    skip_connections = []
-
-    for s in range(nb_stacks):
-        for i in range(dilation_depth + 1):
-            out, skip_out = residual_block(out, nb_filters, s, i)
-            skip_connections.append(skip_out)
-
-    # TODO: This is optinal. Experiment with it...
-    out = merge(skip_connections, mode='sum')
-
-    nb_final_layers = 3
-
-    for i in range(nb_final_layers):
-        if i > 0:
-            # Combine contextual inputs
-            out = merge([context, out], mode='sum')
-
-        out = Convolution1D(nb_output_bins, 1, border_mode='same')(out)
-        context = BatchNormalization()(context)
-
-        if i == nb_final_layers - 1:
-            out = Activation('softmax')(out)
-        else:
-            out = Activation('relu')(out)
-
-    model = Model(inputs, out)
-    model.compile(
-        optimizer='adam',
-        loss='categorical_crossentropy',
-        metrics=['accuracy']
-    )
-    return model
-
-def gru_stack(primary, context, stateful, rnn_layers=4, num_units=256, batch_norm=False, dropout=False):
-    out = primary
-
-    # Create a distributerd representation of context
-    context = GRU(num_units, return_sequences=True, stateful=stateful)(context)
-    if batch_norm:
-        context = BatchNormalization()(context)
-    context = Activation('tanh')(context)
-    if dropout:
-        context = Dropout(0.2)(context)
-
-    # RNN layer stasck
-    for i in range(rnn_layers):
-        y = out
-        if i > 0:
-            # Contextual connections
-            out = merge([out, context], mode='sum')
-
-        out = GRU(
-            num_units,
-            return_sequences=i != rnn_layers - 1,
-            stateful=stateful,
-            name='rnn_' + str(i)
-        )(out)
-
-        # Residual connection
-        if i > 0 and i < rnn_layers - 1:
-           out = merge([out, y], mode='sum')
-
-        if batch_norm:
-            out = BatchNormalization()(out)
-        out = Activation('tanh')(out)
-        if dropout:
-            out = Dropout(0.2)(out)
-
-    # Output dense layer
-    out = Dense(NUM_CLASSES)(out)
-    if batch_norm:
-        out = BatchNormalization()(out)
-    out = Activation('softmax')(out)
-    return out
-
-def gru_stateful(time_steps):
-    # Primary input
-    note_input = Input(batch_shape=(BATCH_SIZE, time_steps, NUM_CLASSES), name='note_input')
-    primary = note_input
-    # Context inputs
-    beat_input = Input(batch_shape=(BATCH_SIZE, time_steps, 2), name='beat_input')
-    completion_input = Input(batch_shape=(BATCH_SIZE, time_steps, 1), name='completion_input')
-    style_input = Input(batch_shape=(BATCH_SIZE, time_steps, NUM_STYLES), name='style_input')
-    context = merge([completion_input, beat_input, style_input], mode='concat')
-
-    inputs = [note_input, beat_input, completion_input, style_input]
-
-    model = Model(inputs, gru_stack(primary, context, True))
-    model.compile(
-        optimizer='adam',
-        loss='categorical_crossentropy',
-        metrics=['accuracy']
-    )
-    return model
-
-def gru_stateless(time_steps):
-    inputs, primary, context = build_inputs(time_steps)
-    model = Model(inputs, gru_stack(primary, context, False))
-    model.compile(
-        optimizer='adam',
-        loss='categorical_crossentropy',
-        metrics=['accuracy']
-    )
-    return model
-
-def build_inputs(time_steps):
-    # Primary input
-    note_input = Input(shape=(time_steps, NUM_CLASSES), name='note_input')
-    primary = note_input
-    # Context inputs
-    beat_input = Input(shape=(time_steps, 2), name='beat_input')
-    completion_input = Input(shape=(time_steps, 1), name='completion_input')
-    style_input = Input(shape=(time_steps, NUM_STYLES), name='style_input')
-    context = merge([completion_input, beat_input, style_input], mode='concat')
-    return [note_input, beat_input, completion_input, style_input], primary, context
-
-def note_model(time_steps):
+def rnn(units, dropout):
     """
-    RL Tuner
+    Multi-layered RNN cell.
+    Paramters:
+        units - A list of the number of units.
+        dropout - Probability of keeping in dropout
     """
-    inputs, x = pre_model(time_steps, False)
+    def f(x):
+        with tf.variable_scope('rnn'):
+            batch_size = x.get_shape()[0]
 
-    # Multi-label
-    policy = Dense(NUM_CLASSES, name='policy', activation='softmax')(x)
-    value = Dense(1, name='value', activation='linear')(x)
+            cells = [tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.GRUCell(num_units), output_keep_prob=dropout) for num_units in units]
+            cell = tf.contrib.rnn.MultiRNNCell(cells)
+            # Initial state of the memory.
+            init_state = cell.zero_state(batch_size, tf.float32)
+            rnn_out, final_state = tf.nn.dynamic_rnn(cell, x, initial_state=init_state)
 
-    model = Model(inputs, [policy, value])
-    #model.load_weights('data/supervised.h5', by_name=True)
-    # Create value output
-    return model
+        return rnn_out, init_state, final_state
+    return f
 
+def time_axis_block(dropout=1, units=[128]):
+    """
+    Note invariant time axis layer.
+    """
+    def f(x, contexts):
+        """
+        Given a tensor of shape [batch_size, time_steps, features, channels],
+        Outputs a tensor of shape [batch_size, time_steps, features, channels]
+        """
+        batch_size = x.get_shape()[0]
+        time_steps = x.get_shape()[1]
 
-def note_preprocess(env, x):
-    note, beat = x
-    return (one_hot(note, NUM_CLASSES), one_hot(beat, NOTES_PER_BAR))
+        outs = []
+        init_states = []
+        final_states = []
+
+        pitch_class_bins = tf.reduce_sum([x[:, :, i*OCTAVE:i*OCTAVE+OCTAVE] for i in range(NUM_OCTAVES)], axis=0, name='pitch_class_bins')
+
+        # Pad by one octave
+        x = tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE]], name='padded_note_in')
+        print('Padded note input by octave', x)
+
+        # Process every note independently
+        for i in range(OCTAVE, NUM_NOTES + OCTAVE):
+            with tf.variable_scope('time_axis_shared', reuse=len(outs) > 0):
+                rnn_input = tf.concat([
+                    # 2 octave input
+                    x[:, :, i - OCTAVE:i + OCTAVE + 1],
+                    contexts,
+                    # Pitch position of note
+                    tf.constant(repeat(i / (NUM_NOTES - 1), batch_size, time_steps), dtype=tf.float32),
+                    # Pitch class of current note
+                    tf.constant(repeat(one_hot(i % OCTAVE, OCTAVE), batch_size, time_steps), dtype=tf.float32),
+                    pitch_class_bins
+                ], 2, name='time_axis_input')
+
+                rnn_out, init_state, final_state = rnn(units, dropout)(rnn_input)
+                init_states.append(init_state)
+                final_states.append(final_state)
+                outs.append(rnn_out)
+
+        # Stack all outputs into a new dimension
+        out = tf.stack(outs, axis=2, name='time_axis_output')
+
+        assert out.get_shape()[0] == batch_size
+        assert out.get_shape()[1] == time_steps
+        assert out.get_shape()[2] == NUM_NOTES
+        assert out.get_shape()[3] == units[-1]
+
+        return out, init_states, final_states
+    return f
+
+def note_axis_block(dropout=1, units=[64]):
+    """
+    The pitch block that conditions each note's generation on the
+    previous note within one time step.
+    """
+    def f(x, target):
+        """
+        Parameters:
+            x - The output of the time axis layer. [batch, time_steps, notes, features]
+            target - The target output for training. [batch, time_steps, notes]
+        """
+        # TODO: Could try using non-recurrent network.
+        batch_size = x.get_shape()[0]
+        time_steps = x.get_shape()[1]
+        num_features = x.get_shape()[3]
+
+        outs = []
+
+        # Every time slice has a note-axis RNN
+        for t in range(time_steps):
+            with tf.variable_scope('note_axis_shared', reuse=len(outs) > 0):
+                # [batch, notes, features]
+                input_for_time = x[:, t, :, :]
+                # [batch, notes, 1]
+                target_for_time = tf.expand_dims(target[:, t, :], -1)
+                # Shift target vector for prediction
+                target_for_time = tf.pad(target_for_time, [[0, 0], [1, 0], [0, 0]])
+                # Remove last note
+                target_for_time = target_for_time[:, :-1, :]
+
+                assert target_for_time.get_shape()[0] == batch_size
+                assert target_for_time.get_shape()[1] == NUM_NOTES
+                assert target_for_time.get_shape()[2] == 1
+
+                rnn_input = tf.concat([
+                    # Features for each note
+                    input_for_time,
+                    # Conditioned on the previously generated note
+                    target_for_time
+                ], 2, name='note_axis_input')
+
+                assert rnn_input.get_shape()[0] == batch_size
+                assert rnn_input.get_shape()[1] == NUM_NOTES
+                assert rnn_input.get_shape()[2] == num_features + 1
+
+                rnn_out, *_ = rnn(units, dropout)(rnn_input)
+
+                # Dense prediction layer
+                rnn_out = tf.layers.dense(inputs=rnn_out, units=1)
+                rnn_out = tf.squeeze(rnn_out, axis=[2], name='note_logit')
+                outs.append(rnn_out)
+
+        # Merge note-axis outputs for each time step.
+        out = tf.stack(outs, axis=1, name='note_logits')
+
+        assert out.get_shape()[0] == batch_size
+        assert out.get_shape()[1] == time_steps
+        assert out.get_shape()[2] == NUM_NOTES
+
+        return out
+    return f
+class MusicModel:
+    def __init__(self, batch_size, time_steps, training=True):
+        input_dropout = 0.8 if training else 1
+        dropout = 0.5 if training else 1
+
+        # RNN states
+        self.init_states = []
+        self.final_states = []
+
+        """
+        Input
+        """
+        # Input note (multi-hot vector)
+        self.note_in = tf.placeholder(tf.float32, [batch_size, time_steps, NUM_NOTES], name='note_in')
+        # Input beat (clock representation)
+        self.beat_in = tf.placeholder(tf.float32, [batch_size, time_steps, NOTES_PER_BAR], name='beat_in')
+        # Input progress (scalar representation)
+        self.progress_in = tf.placeholder(tf.float32, [batch_size, time_steps, 1], name='progress_in')
+        # Style bias (one-hot representation)
+        self.style_in = tf.placeholder(tf.float32, [batch_size, time_steps, NUM_STYLES], name='style_in')
+
+        # Target note to predict
+        self.note_target = tf.placeholder(tf.float32, [batch_size, time_steps, NUM_NOTES], name='target_in')
+
+        # Context to help generation
+        contexts = tf.concat([self.beat_in, self.progress_in, self.style_in], 2, name='context')
+
+        # Note input
+        out = self.note_in
+        out = tf.nn.dropout(out, input_dropout)
+        print('note_in', out)
+
+        with tf.variable_scope('time_axis'):
+            out, init_states, final_states = time_axis_block(dropout)(out, contexts)
+            self.init_states += init_states
+            self.final_states += final_states
+
+        with tf.variable_scope('note_axis'):
+            # Prevent being over dependent upon wrong note
+            target = tf.nn.dropout(self.note_target, input_dropout)
+            out = note_axis_block(dropout)(out, target)
+        """
+        Sigmoid Layer
+        """
+        # Next note predictions
+        logits = out
+        self.prob = tf.nn.sigmoid(logits, name='probability')
+        # Classification prediction for f1 score
+        self.pred = tf.round(self.prob, name='predictions')
+
+        # Current global step we are on
+        self.global_step = tf.Variable(0, name='global_step', trainable=False)
+
+        """
+        Loss
+        """
+        self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=logits, labels=self.note_target))
+        self.train_step = tf.train.AdamOptimizer().minimize(self.loss, global_step=self.global_step)
+
+        # Saver
+        with tf.device('/cpu:0'):
+            self.saver = tf.train.Saver()
+
+        """
+        Statistics
+        """
+        with tf.name_scope('summary'):
+            self.build_summary(self.pred, self.note_target)
+
+    def build_summary(self, predicted, actual):
+        # F1 score statistic
+        # Count true positives, true negatives, false positives and false negatives.
+        tp = tf.count_nonzero(predicted * actual, dtype=tf.float32)
+        tn = tf.count_nonzero((predicted - 1) * (actual - 1), dtype=tf.float32)
+        fp = tf.count_nonzero(predicted * (actual - 1), dtype=tf.float32)
+        fn = tf.count_nonzero((predicted - 1) * actual, dtype=tf.float32)
+
+        # Calculate accuracy, precision, recall and F1 score.
+        accuracy = (tp + tn) / (tp + fp + fn + tn)
+        # Prevent divide by zero
+        zero = tf.constant(0, dtype=tf.float32)
+        precision = tf.cond(tf.not_equal(tp, 0), lambda: tp / (tp + fp), lambda: zero)
+        recall = tf.cond(tf.not_equal(tp, 0), lambda: tp / (tp + fn), lambda: zero)
+        pre_f = 2 * precision * recall
+        self.fmeasure = tf.cond(tf.not_equal(pre_f, 0), lambda: pre_f / (precision + recall), lambda: zero)
+
+        # Add metrics to TensorBoard.
+        tf.summary.scalar('Accuracy', accuracy)
+        tf.summary.scalar('Precision', precision)
+        tf.summary.scalar('Recall', recall)
+        tf.summary.scalar('f-measure', self.fmeasure)
+
+        tf.summary.scalar('loss', self.loss)
+
+        self.merged_summaries = tf.summary.merge_all()
+
+    def train(self, sess, train_seqs, num_epochs, model_file, verbose=True):
+        writer = tf.summary.FileWriter('out/summary', sess.graph, flush_secs=3)
+
+        for epoch in range(num_epochs):
+            # Progress bar metrics
+            training_loss = 0
+            f_score = 0
+            e_step = 0
+
+            # Shuffle sequence orders.
+            order = np.random.permutation(len(train_seqs))
+            t = tqdm(order)
+            t.set_description('{}/{}'.format(epoch + 1, num_epochs))
+
+            # Train every single sequence
+            for i in t:
+                seq = train_seqs[i]
+                # Reset state every sequence
+                states = [None for _ in self.init_states]
+
+                tt = tqdm(seq)
+                for note_in, beat_in, progress_in, style_in, label in tt:
+                    # Build feed-dict
+                    feed_dict = {
+                        self.note_in: note_in,
+                        self.beat_in: beat_in,
+                        self.progress_in: progress_in,
+                        self.style_in: style_in,
+                        self.note_target: label
+                    }
+
+                    for tf_s, s in zip(self.init_states, states):
+                        if s is not None:
+                            feed_dict[tf_s] = s
+
+                    pred, summary, step, t_loss, t_f_score, _, *states = sess.run([
+                            self.pred,
+                            self.merged_summaries,
+                            self.global_step,
+                            self.loss,
+                            self.fmeasure,
+                            self.train_step,
+                        ] + self.final_states,
+                        feed_dict
+                    )
+
+                    # Add summary to Tensorboard
+                    writer.add_summary(summary, step)
+
+                    if step % 100 == 0:
+                        self.saver.save(sess, model_file, global_step=step)
+
+                    # Update progress bar info
+                    training_loss += t_loss
+                    f_score += t_f_score
+                    e_step += 1
+                    tt.set_description('Step {}'.format(step))
+                    t.set_postfix(loss=training_loss / e_step, f1=f_score / e_step)
+
+        # Save the last epoch
+        self.saver.save(sess, model_file)
+
+    def generate(self, sess, style, inspiration=None, length=NOTES_PER_BAR * 8):
+        total_len = length + (len(inspiration) if inspiration is not None else 0)
+        # Resulting generation
+        results = []
+        # Reset state
+        states = [None for _ in self.init_states]
+
+        # Current note
+        prev_note = np.zeros(NUM_NOTES)
+
+        for i in tqdm(range(total_len)):
+            current_beat = compute_beat(i, NOTES_PER_BAR)
+            current_progress = compute_completion(i, total_len)
+
+            # The next note being built.
+            next_note = np.zeros(NUM_NOTES)
+
+            for n in range(NUM_NOTES):
+                # Build feed dict
+                feed_dict = {
+                    self.note_in: [[prev_note]],
+                    self.beat_in: [[current_beat]],
+                    self.progress_in: [[current_progress]],
+                    self.style_in: [[style]],
+                    self.note_target: [[next_note]]
+                }
+
+                for tf_s, s in zip(self.init_states, states):
+                    if s is not None:
+                        feed_dict[tf_s] = s
+
+                prob, *next_states = sess.run([self.prob] + self.final_states, feed_dict)
+
+                if inspiration is not None and i < len(inspiration):
+                    # Priming notes
+                    next_note = inspiration[i]
+                    break
+                else:
+                    # Choose one probability at a time.
+                    prob = prob[0][0]
+                    next_note[n] = 1 if np.random.random() <= prob[n] else 0
+
+            # Only add notes if not priming
+            if inspiration is None or i >= len(inspiration):
+                results.append(next_note)
+
+            # Only advance state after one note has been predicted.
+            states = next_states
+            prev_note = next_note
+        return results

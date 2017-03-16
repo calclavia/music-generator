@@ -1,45 +1,30 @@
+import numpy as np
+import tensorflow as tf
+
 from music import *
-import midi
 from rl import A3CAgent
 from midi_util import *
-from keras.models import load_model
-from models import *
-
-def make_agent():
-    from models import note_model, note_preprocess
-
-    time_steps = 8
-
-    return A3CAgent(
-        lambda: note_model(time_steps),
-        num_workers=3,
-        time_steps=time_steps,
-        preprocess=note_preprocess,
-        entropy_factor=0.05
-    )
 
 def one_hot(i, nb_classes):
     arr = np.zeros((nb_classes,))
     arr[i] = 1
     return arr
 
-def load_supervised_model(time_steps, model_file, model_fn=gru_stateful):
-    # Make dir for model saving
-    os.makedirs(os.path.dirname(model_file), exist_ok=True)
+def chunk(a, size):
+    trim_size = (len(a) // size) * size
+    return np.swapaxes(np.split(np.array(a[:trim_size]), size), 0, 1)
 
-    if os.path.isfile(model_file):
-        print('Loading model')
-        try:
-            model = load_model(model_file, custom_objects={
-                'CausalAtrousConvolution1D': CausalAtrousConvolution1D
-            })
-        except Exception as e:
-            print(e)
-            model = model_fn(time_steps)
-            model.load_weights(model_file)
-    else:
-        print('Creating new model')
-        model = model_fn(time_steps)
+def get_all_files(paths):
+    potential_files = []
+    for path in paths:
+        for root, dirs, files in os.walk(path):
+            for f in files:
+                fname = os.path.join(root, f)
+                if os.path.isfile(fname) and fname.endswith('.mid'):
+                    potential_files.append(fname)
+    return potential_files
 
-    model.summary()
-    return model
+def reset_graph():
+    if 'sess' in globals() and sess:
+        sess.close()
+    tf.reset_default_graph()

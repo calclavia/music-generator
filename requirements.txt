@@ -1,5 +1,7 @@
 pretty_midi
 keras
 gym
-tensorflow
+tensorflow-gpu
 joblib
+tqdm
+python-midi
