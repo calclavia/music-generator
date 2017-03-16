@@ -1,5 +1,7 @@
 # Define the musical styles
-styles = ['data/classical/bach']
+
+# TODO: Debugging use
+styles = ['data/classical/bach', 'data/classical/mozart_few']
 # styles = ['data/classical/mozart', 'data/classical/beethoven', 'data/classical/bach']
 #styles = ['data/edm', 'data/southern_rock', 'data/hard_rock']
 # styles = ['data/edm']

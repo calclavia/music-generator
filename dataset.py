@@ -34,9 +34,11 @@ def process(sequences, batch_size, time_steps, style):
     # Clamps the sequence
     sequences = [clamp_midi(s) for s in sequences]
     # TODO: Cirriculum training. Increasing complexity. Increasing timestep details?
-    # TODO: Random transpoe?
+    # TODO: Random transpoe? (If lacking in dataset)
     # TODO: Random slices of subsequence?
     train_seqs = []
+
+    style_hot = one_hot(style, NUM_STYLES)
 
     for seq in sequences:
         train_data, label_data = stagger(seq, time_steps)
@@ -47,8 +49,7 @@ def process(sequences, batch_size, time_steps, style):
         progress_data = [compute_completion(i, len(seq)) for i in range(len(seq))]
         progress_data, _ = stagger(progress_data, time_steps)
 
-        style_data = [one_hot(style, NUM_STYLES) for i in range(len(seq))]
-        style_data, _ = stagger(style_data, time_steps)
+        style_data = [style_hot for i in range(len(seq))]
 
         # Chunk into batches
         train_data = chunk(train_data, batch_size)
