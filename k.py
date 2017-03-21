@@ -1,5 +1,5 @@
 import tensorflow as tf
-from keras.layers import Input, LSTM, Dense, Dropout, Lambda, Reshape
+from keras.layers import Input, LSTM, Dense, Dropout, Lambda, Reshape, Conv1D
 from keras.models import Model, load_model
 from keras.callbacks import ModelCheckpoint, LambdaCallback, ReduceLROnPlateau, EarlyStopping, TensorBoard
 from keras.layers.merge import Concatenate, Add
@@ -13,7 +13,7 @@ from music import OCTAVE, NUM_OCTAVES
 from midi_util import midi_encode
 import midi
 
-def build_model(time_steps=SEQUENCE_LENGTH, time_axis_units=256, note_axis_units=128, input_dropout=0.2, dropout=0.5):
+def build_model(time_steps=SEQUENCE_LENGTH, time_axis_units=256, note_axis_units=256, input_dropout=0.2, dropout=0.5):
     notes_in = Input((time_steps, NUM_NOTES))
     beat_in = Input((time_steps, NOTES_PER_BAR))
     # Target input for conditioning
@@ -51,8 +51,10 @@ def build_model(time_steps=SEQUENCE_LENGTH, time_axis_units=256, note_axis_units
     shift_chosen = Lambda(lambda x: tf.pad(x[:, :, :-1], [[0, 0], [0, 0], [1, 0]]))(chosen_in)
     shift_chosen = Dropout(input_dropout)(shift_chosen)
     shift_chosen = Lambda(lambda x: tf.expand_dims(x, -1))(shift_chosen)
-    note_axis_rnn_1 = LSTM(note_axis_units, return_sequences=True, activation='tanh', name='note_axis_rnn_1')
-    note_axis_rnn_2 = LSTM(note_axis_units, return_sequences=True, activation='tanh', name='note_axis_rnn_2')
+    # note_axis_rnn_1 = LSTM(note_axis_units, return_sequences=True, activation='tanh', name='note_axis_rnn_1')
+    # note_axis_rnn_2 = LSTM(note_axis_units, return_sequences=True, activation='tanh', name='note_axis_rnn_2')
+    note_axis_convs = [Conv1D(note_axis_units, 2, dilation_rate=2 ** l, padding='causal', activation='relu', name='note_axis_rnn_' + str(l)) for l in range(6)]
+
     prediction_layer = Dense(1, activation='sigmoid')
     note_axis_outs = []
 
@@ -67,11 +69,24 @@ def build_model(time_steps=SEQUENCE_LENGTH, time_axis_units=256, note_axis_units
     for t in range(time_steps):
         # [batch, notes, features + 1]
         note_axis_out = Lambda(lambda x: x[:, t, :, :], name='time_' + str(t))(note_axis_input)
+
+        """
         first_layer_out = note_axis_out = Dropout(dropout)(note_axis_rnn_1(note_axis_out))
         note_axis_out = Dropout(dropout)(note_axis_rnn_2(note_axis_out))
         # Skip connection
         note_axis_out = Add()([first_layer_out, note_axis_out])
+        """
+        # Create large enough dialation to cover all notes
+        for l in range(6):
+            prev_out = note_axis_out
+            note_axis_out = note_axis_convs[l](note_axis_out)
+            note_axis_out = Dropout(dropout)(note_axis_out)
 
+            # Residual connection
+            if l > 0:
+                note_axis_out = Add()([note_axis_out, prev_out])
+
+        # Apply prediction layer
         note_axis_out = prediction_layer(note_axis_out)
         note_axis_out = Reshape((NUM_NOTES,))(note_axis_out)
         note_axis_outs.append(note_axis_out)
