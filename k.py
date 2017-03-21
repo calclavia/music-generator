@@ -13,7 +13,7 @@ from music import OCTAVE, NUM_OCTAVES
 from midi_util import midi_encode
 import midi
 
-def build_model(time_steps=SEQUENCE_LENGTH, time_axis_units=256, note_axis_units=256, input_dropout=0.2, dropout=0.5):
+def build_model(time_steps=SEQUENCE_LENGTH, time_axis_units=128, note_axis_units=128, input_dropout=0.2, dropout=0.5):
     notes_in = Input((time_steps, NUM_NOTES))
     beat_in = Input((time_steps, NOTES_PER_BAR))
     # Target input for conditioning
@@ -99,7 +99,7 @@ def build_model(time_steps=SEQUENCE_LENGTH, time_axis_units=256, note_axis_units
 def main():
     parser = argparse.ArgumentParser(description='Generates music.')
     parser.add_argument('--train', default=False, action='store_true', help='Train model?')
-    parser.add_argument('--gen', default=False, action='store_true', help='Generate after each epoch?')
+    parser.add_argument('--gen', default=0, type=int, help='Generate per how many epochs?')
     args = parser.parse_args()
 
     model = build_or_load()
@@ -122,10 +122,10 @@ def build_or_load(allow_load=True):
 
 def train(model, gen):
     print('Training')
-    train_data, train_labels = load_all(styles, BATCH_SIZE, SEQUENCE_LENGTH)
+    train_data, train_labels = load_all(['data/edm'], BATCH_SIZE, SEQUENCE_LENGTH)
 
     def epoch_cb(epoch, _):
-        if epoch % 10 == 0:
+        if epoch % gen == 0:
             write_file(SAMPLES_DIR + '/result_epoch_{}.mid'.format(epoch), generate(model))
 
     cbs = [
@@ -135,7 +135,7 @@ def train(model, gen):
         TensorBoard(log_dir='out/logs', histogram_freq=1)
     ]
 
-    if gen:
+    if gen > 0:
         cbs += [LambdaCallback(on_epoch_end=epoch_cb)]
 
     model.fit(train_data, train_labels, epochs=1000, callbacks=cbs)
