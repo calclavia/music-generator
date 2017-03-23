@@ -1,4 +1,4 @@
-from music import NOTES_PER_BAR, MAX_NOTE, MIN_NOTE, NUM_NOTES
+from music import NOTES_PER_BAR, MAX_NOTE, MIN_NOTE
 import os
 
 # Define the musical styles
@@ -18,6 +18,7 @@ STYLE_UNITS = 32
 TIME_AXIS_UNITS = [256, 256]
 NOTE_AXIS_UNITS = [128, 128, 128, 128, 128, 128]
 FINAL_UNITS = [128, 128]
+STYLE_UNITS = 128
 
 # Move file save location
 model_file = 'out/saves/model'
