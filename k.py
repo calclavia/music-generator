@@ -7,13 +7,13 @@ from collections import deque
 from tqdm import tqdm
 import argparse
 
-from constants import SEQUENCE_LENGTH
+from constants import TIME_STEPS
 from dataset import *
 from music import OCTAVE, NUM_OCTAVES
 from midi_util import midi_encode
 import midi
 
-def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256, note_axis_units=128, input_dropout=0.2, dropout=0.5):
+def build_model(time_steps=TIME_STEPS, style_units=32, input_dropout=0.2, dropout=0.5):
     notes_in = Input((time_steps, NUM_NOTES))
     beat_in = Input((time_steps, NOTES_PER_BAR))
     style_in = Input((time_steps, NUM_STYLES))
@@ -29,8 +29,7 @@ def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256,
     padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE]]), name='padded_note_in')(out)
     pitch_class_bins = Lambda(lambda x: tf.reduce_sum([x[:, :, i*OCTAVE:i*OCTAVE+OCTAVE] for i in range(NUM_OCTAVES)], axis=0), name='pitch_class_bins')(out)
 
-    time_axis_rnn_1 = LSTM(time_axis_units, return_sequences=True, activation='tanh', name='time_axis_rnn_1')
-    time_axis_rnn_2 = LSTM(time_axis_units, return_sequences=True, activation='tanh', name='time_axis_rnn_2')
+    time_axis_rnn = [LSTM(units, return_sequences=True, activation='tanh', name='time_axis_rnn_' + str(i)) for i, units in enumerate(TIME_AXIS_UNITS)]
     time_axis_outs = []
 
     for n in range(OCTAVE, NUM_NOTES + OCTAVE):
@@ -42,8 +41,8 @@ def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256,
         pitch_class_in = Lambda(lambda x: tf.reshape(tf.tile(tf.constant(one_hot(n % OCTAVE, OCTAVE), dtype=tf.float32), [tf.shape(x)[0] * time_steps]), [tf.shape(x)[0], time_steps, OCTAVE]))(notes_in)
 
         time_axis_out = Concatenate()([octave_in, pitch_pos_in, pitch_class_in, beat_in, style_distributed])
-        first_layer_out = time_axis_out = Dropout(dropout)(time_axis_rnn_1(time_axis_out))
-        time_axis_out = Dropout(dropout)(time_axis_rnn_2(time_axis_out))
+        first_layer_out = time_axis_out = Dropout(dropout)(time_axis_rnn[0](time_axis_out))
+        time_axis_out = Dropout(dropout)(time_axis_rnn[1](time_axis_out))
         # Residual connection
         time_axis_out = Add()([first_layer_out, time_axis_out])
         time_axis_outs.append(time_axis_out)
@@ -57,15 +56,15 @@ def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256,
     shift_chosen = Lambda(lambda x: tf.expand_dims(x, -1))(shift_chosen)
 
     # Define shared layers
-    # note_axis_rnn_1 = LSTM(note_axis_units, return_sequences=True, activation='tanh', name='note_axis_rnn_1')
-    # note_axis_rnn_2 = LSTM(note_axis_units, return_sequences=True, activation='tanh', name='note_axis_rnn_2')
-    note_axis_conv_tanh = [Conv1D(note_axis_units, 2, dilation_rate=2 ** l, padding='causal', activation='tanh', name='note_axis_conv_tanh_' + str(l)) for l in range(6)]
-    note_axis_conv_sig = [Conv1D(note_axis_units, 2, dilation_rate=2 ** l, padding='causal', activation='sigmoid', name='note_axis_conv_sig_' + str(l)) for l in range(6)]
+    # note_axis_rnn_1 = LSTM(units, return_sequences=True, activation='tanh', name='note_axis_rnn_1')
+    # note_axis_rnn_2 = LSTM(units, return_sequences=True, activation='tanh', name='note_axis_rnn_2')
+    note_axis_conv_tanh = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', activation='tanh', name='note_axis_conv_tanh_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
+    note_axis_conv_sig = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', activation='sigmoid', name='note_axis_conv_sig_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
 
-    note_axis_conv_res = [Conv1D(note_axis_units, 1, padding='same', name='note_axis_conv_res_' + str(l)) for l in range(6)]
-    note_axis_conv_skip = [Conv1D(note_axis_units, 1, padding='same', name='note_axis_conv_skip_' + str(l)) for l in range(6)]
+    note_axis_conv_res = [Conv1D(units, 1, padding='same', name='note_axis_conv_res_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
+    note_axis_conv_skip = [Conv1D(units, 1, padding='same', name='note_axis_conv_skip_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
 
-    note_axis_conv_final = [Conv1D(note_axis_units, 1, padding='same', name='note_axis_conv_final_' + str(l)) for l in range(2)]
+    note_axis_conv_final = [Conv1D(units, 1, padding='same', name='note_axis_conv_final_' + str(l)) for l, units in enumerate(FINAL_UNITS)]
 
     prediction_layer = Dense(1, activation='sigmoid')
     note_axis_outs = []
@@ -91,7 +90,7 @@ def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256,
         """
         skips = []
         # Create large enough dilation to cover all notes
-        for l in range(6):
+        for l, units in enumerate(NOTE_AXIS_UNITS):
             prev_out = note_axis_out
 
             # Global style conditioning
@@ -111,11 +110,11 @@ def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256,
             # Residual connection
             if l > 0:
                 note_axis_out = Add()([note_axis_out, prev_out])
-
+        # TODO: Validate if this improves
         # Merge all skip connections
         note_axis_out = Add()(skips)
 
-        for l in range(2):
+        for l, units in enumerate(FINAL_UNITS):
             note_axis_out = Activation('relu')(note_axis_out)
             note_axis_out = note_axis_conv_final[l](note_axis_out)
             note_axis_out = Dropout(dropout)(note_axis_out)
@@ -156,7 +155,7 @@ def build_or_load(allow_load=True):
 
 def train(model, gen):
     print('Training')
-    train_data, train_labels = load_all(styles, SEQUENCE_LENGTH)
+    train_data, train_labels = load_all(styles, TIME_STEPS)
 
     def epoch_cb(epoch, _):
         if epoch % gen == 0:
@@ -176,9 +175,9 @@ def train(model, gen):
 
 def generate(model, default_temp=1, num_bars=16, style=[0, 1, 0]):
     print('Generating')
-    notes_memory = deque([np.zeros(NUM_NOTES) for _ in range(SEQUENCE_LENGTH)], maxlen=SEQUENCE_LENGTH)
-    beat_memory = deque([np.zeros(NOTES_PER_BAR) for _ in range(SEQUENCE_LENGTH)], maxlen=SEQUENCE_LENGTH)
-    style_memory = deque([style for _ in range(SEQUENCE_LENGTH)], maxlen=SEQUENCE_LENGTH)
+    notes_memory = deque([np.zeros(NUM_NOTES) for _ in range(TIME_STEPS)], maxlen=TIME_STEPS)
+    beat_memory = deque([np.zeros(NOTES_PER_BAR) for _ in range(TIME_STEPS)], maxlen=TIME_STEPS)
+    style_memory = deque([style for _ in range(TIME_STEPS)], maxlen=TIME_STEPS)
 
     results = []
     temperature = default_temp
