@@ -165,10 +165,11 @@ def train(model, gen):
 
     model.fit(train_data, train_labels, epochs=1000, callbacks=cbs)
 
-def generate(model, default_temp=1, num_bars=16):
+def generate(model, default_temp=1, num_bars=16, style=[1, 0, 0]):
     print('Generating')
     notes_memory = deque([np.zeros(NUM_NOTES) for _ in range(SEQUENCE_LENGTH)], maxlen=SEQUENCE_LENGTH)
     beat_memory = deque([np.zeros(NOTES_PER_BAR) for _ in range(SEQUENCE_LENGTH)], maxlen=SEQUENCE_LENGTH)
+    style_memory = deque([style for _ in range(SEQUENCE_LENGTH)], maxlen=SEQUENCE_LENGTH)
 
     results = []
     temperature = default_temp
@@ -180,7 +181,13 @@ def generate(model, default_temp=1, num_bars=16):
 
         # Generate each note individually
         for n in range(NUM_NOTES):
-            predictions = model.predict([np.array([notes_memory]), np.array([list(notes_memory)[1:] + [next_note]]), np.array([beat_memory])])
+            predictions = model.predict([
+                np.array([notes_memory]),
+                np.array([list(notes_memory)[1:] + [next_note]]),
+                np.array([beat_memory]),
+                np.array([style_memory])
+            ])
+
             # We only care about the last time step
             prob_dist = predictions[0][-1]
 
