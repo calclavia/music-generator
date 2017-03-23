@@ -1,5 +1,5 @@
 import tensorflow as tf
-from keras.layers import Input, LSTM, Dense, Dropout, Lambda, Reshape, Conv1D, TimeDistributed
+from keras.layers import Input, Activation, LSTM, Dense, Dropout, Lambda, Reshape, Conv1D, TimeDistributed
 from keras.models import Model, load_model
 from keras.callbacks import ModelCheckpoint, LambdaCallback, ReduceLROnPlateau, EarlyStopping, TensorBoard
 from keras.layers.merge import Concatenate, Add, Multiply
@@ -65,6 +65,8 @@ def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256,
     note_axis_conv_res = [Conv1D(note_axis_units, 1, padding='same', name='note_axis_conv_res_' + str(l)) for l in range(6)]
     note_axis_conv_skip = [Conv1D(note_axis_units, 1, padding='same', name='note_axis_conv_skip_' + str(l)) for l in range(6)]
 
+    note_axis_conv_final = [Conv1D(note_axis_units, 1, padding='same', name='note_axis_conv_final_' + str(l)) for l in range(2)]
+
     prediction_layer = Dense(1, activation='sigmoid')
     note_axis_outs = []
 
@@ -79,6 +81,8 @@ def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256,
     for t in range(time_steps):
         # [batch, notes, features + 1]
         note_axis_out = Lambda(lambda x: x[:, t, :, :], name='time_' + str(t))(note_axis_input)
+        style_sliced = Lambda(lambda x: tf.reshape(x[:, t, :], [-1, NUM_NOTES, 1]), name='style_' + str(t))(style_distributed)
+
         """
         first_layer_out = note_axis_out = Dropout(dropout)(note_axis_rnn_1(note_axis_out))
         note_axis_out = Dropout(dropout)(note_axis_rnn_2(note_axis_out))
@@ -90,8 +94,8 @@ def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256,
         for l in range(6):
             prev_out = note_axis_out
 
-            # TODO: Global conditioning
-            # note_axis_out = Concatenate()([note_axis_out, style_distributed])
+            # Global style conditioning
+            note_axis_out = Concatenate()([note_axis_out, style_sliced])
 
             # Gated activation unit.
             tanh_out = Dropout(dropout)(note_axis_conv_tanh[l](note_axis_out))
@@ -110,6 +114,11 @@ def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256,
 
         # Merge all skip connections
         note_axis_out = Add()(skips)
+
+        for l in range(2):
+            note_axis_out = Activation('relu')(note_axis_out)
+            note_axis_out = note_axis_conv_final[l](note_axis_out)
+            note_axis_out = Dropout(dropout)(note_axis_out)
 
         # Apply prediction layer
         note_axis_out = prediction_layer(note_axis_out)
@@ -139,7 +148,7 @@ def build_or_load(allow_load=True):
     model.summary()
     if allow_load:
         try:
-            model.load_weights('out/model.h5')
+            model.load_weights('out/model.h5', by_name=True)
             print('Loaded model from file.')
         except:
             print('Unable to load model from file.')
@@ -165,7 +174,7 @@ def train(model, gen):
 
     model.fit(train_data, train_labels, epochs=1000, callbacks=cbs)
 
-def generate(model, default_temp=1, num_bars=16, style=[1, 0, 0]):
+def generate(model, default_temp=1, num_bars=16, style=[0, 1, 0]):
     print('Generating')
     notes_memory = deque([np.zeros(NUM_NOTES) for _ in range(SEQUENCE_LENGTH)], maxlen=SEQUENCE_LENGTH)
     beat_memory = deque([np.zeros(NOTES_PER_BAR) for _ in range(SEQUENCE_LENGTH)], maxlen=SEQUENCE_LENGTH)
