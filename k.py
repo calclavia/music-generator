@@ -16,7 +16,7 @@ import midi
 def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256, note_axis_units=128, input_dropout=0.2, dropout=0.5):
     notes_in = Input((time_steps, NUM_NOTES))
     beat_in = Input((time_steps, NOTES_PER_BAR))
-    style_in = Input((time_steps, NOTES_PER_BAR))
+    style_in = Input((time_steps, NUM_STYLES))
     # Target input for conditioning
     chosen_in = Input((time_steps, NUM_NOTES))
 
@@ -41,7 +41,7 @@ def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256,
         # Pitch class of current note
         pitch_class_in = Lambda(lambda x: tf.reshape(tf.tile(tf.constant(one_hot(n % OCTAVE, OCTAVE), dtype=tf.float32), [tf.shape(x)[0] * time_steps]), [tf.shape(x)[0], time_steps, OCTAVE]))(notes_in)
 
-        time_axis_out = Concatenate()([octave_in, pitch_pos_in, pitch_class_in, beat_in])
+        time_axis_out = Concatenate()([octave_in, pitch_pos_in, pitch_class_in, beat_in, style_distributed])
         first_layer_out = time_axis_out = Dropout(dropout)(time_axis_rnn_1(time_axis_out))
         time_axis_out = Dropout(dropout)(time_axis_rnn_2(time_axis_out))
         # Residual connection
@@ -90,6 +90,9 @@ def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256,
         for l in range(6):
             prev_out = note_axis_out
 
+            # TODO: Global conditioning
+            # note_axis_out = Concatenate()([note_axis_out, style_distributed])
+
             # Gated activation unit.
             tanh_out = Dropout(dropout)(note_axis_conv_tanh[l](note_axis_out))
             sig_out = Dropout(dropout)(note_axis_conv_sig[l](note_axis_out))
@@ -114,7 +117,7 @@ def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256,
         note_axis_outs.append(note_axis_out)
     out = Lambda(lambda x: tf.stack(x, axis=1))(note_axis_outs)
 
-    model = Model([notes_in, chosen_in, beat_in], out)
+    model = Model([notes_in, chosen_in, beat_in, style_in], out)
     model.compile(optimizer='adam', loss='binary_crossentropy')
     return model
 

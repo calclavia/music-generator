@@ -133,8 +133,9 @@ def load_all(styles, batch_size, time_steps):
 
     training_data = np.array(training_data)
     beat_data = np.array(beat_data)
+    style_data = np.array(style_data)
     training_labels = np.array(training_labels)
-    return [training_data, training_labels, beat_data], training_labels
+    return [training_data, training_labels, beat_data, style_data], training_labels
 
 def clamp_midi(sequence):
     """
