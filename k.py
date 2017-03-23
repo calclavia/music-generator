@@ -2,7 +2,7 @@ import tensorflow as tf
 from keras.layers import Input, LSTM, Dense, Dropout, Lambda, Reshape, Conv1D, TimeDistributed
 from keras.models import Model, load_model
 from keras.callbacks import ModelCheckpoint, LambdaCallback, ReduceLROnPlateau, EarlyStopping, TensorBoard
-from keras.layers.merge import Concatenate, Add
+from keras.layers.merge import Concatenate, Add, Multiply
 from collections import deque
 from tqdm import tqdm
 import argparse
@@ -55,11 +55,15 @@ def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256,
     shift_chosen = Lambda(lambda x: tf.pad(x[:, :, :-1], [[0, 0], [0, 0], [1, 0]]))(chosen_in)
     shift_chosen = Dropout(input_dropout)(shift_chosen)
     shift_chosen = Lambda(lambda x: tf.expand_dims(x, -1))(shift_chosen)
+
+    # Define shared layers
     # note_axis_rnn_1 = LSTM(note_axis_units, return_sequences=True, activation='tanh', name='note_axis_rnn_1')
     # note_axis_rnn_2 = LSTM(note_axis_units, return_sequences=True, activation='tanh', name='note_axis_rnn_2')
-    note_axis_convs = [Conv1D(note_axis_units, 2, dilation_rate=2 ** l, padding='causal', activation='tanh', name='note_axis_rnn_' + str(l)) for l in range(6)]
-    # note_axis_conv_tanh = [Conv1D(note_axis_units, 2, dilation_rate=2 ** l, padding='causal', activation='tanh', name='note_axis_rnn_tanh_' + str(l)) for l in range(6)]
-    # note_axis_conv_sig = [Conv1D(note_axis_units, 2, dilation_rate=2 ** l, padding='causal', activation='sigmoid', name='note_axis_rnn__sig_' + str(l)) for l in range(6)]
+    note_axis_conv_tanh = [Conv1D(note_axis_units, 2, dilation_rate=2 ** l, padding='causal', activation='tanh', name='note_axis_conv_tanh_' + str(l)) for l in range(6)]
+    note_axis_conv_sig = [Conv1D(note_axis_units, 2, dilation_rate=2 ** l, padding='causal', activation='sigmoid', name='note_axis_conv_sig_' + str(l)) for l in range(6)]
+
+    note_axis_conv_res = [Conv1D(note_axis_units, 1, padding='same', name='note_axis_conv_res_' + str(l)) for l in range(6)]
+    note_axis_conv_skip = [Conv1D(note_axis_units, 1, padding='same', name='note_axis_conv_skip_' + str(l)) for l in range(6)]
 
     prediction_layer = Dense(1, activation='sigmoid')
     note_axis_outs = []
@@ -81,16 +85,28 @@ def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256,
         # Residual connection
         note_axis_out = Add()([first_layer_out, note_axis_out])
         """
-        # TODO: Incomplete implementation
-        # Create large enough dialation to cover all notes
+        skips = []
+        # Create large enough dilation to cover all notes
         for l in range(6):
             prev_out = note_axis_out
-            note_axis_out = note_axis_convs[l](note_axis_out)
-            note_axis_out = Dropout(dropout)(note_axis_out)
+
+            # Gated activation unit.
+            tanh_out = Dropout(dropout)(note_axis_conv_tanh[l](note_axis_out))
+            sig_out = Dropout(dropout)(note_axis_conv_sig[l](note_axis_out))
+            note_axis_out = Multiply()([tanh_out, sig_out])
+
+            # Res conv connection
+            note_axis_out = Dropout(dropout)(note_axis_conv_res[l](note_axis_out))
+
+            # Skip connection
+            skips.append(Dropout(dropout)(note_axis_conv_skip[l](note_axis_out)))
 
             # Residual connection
             if l > 0:
                 note_axis_out = Add()([note_axis_out, prev_out])
+
+        # Merge all skip connections
+        note_axis_out = Add()(skips)
 
         # Apply prediction layer
         note_axis_out = prediction_layer(note_axis_out)
