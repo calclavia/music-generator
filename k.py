@@ -81,7 +81,8 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     for t in range(time_steps):
         # [batch, notes, features + 1]
         note_axis_out = Lambda(lambda x: x[:, t, :, :], name='time_' + str(t))(note_axis_input)
-        style_sliced = RepeatVector(NUM_NOTES)(Lambda(lambda x: x[:, t, :], name='style_' + str(t))(style_distributed))
+        style_sliced_tanh = RepeatVector(NUM_NOTES)(Lambda(lambda x: x[:, t, :], name='style_' + str(t))(style_distributed_tanh))
+        style_sliced_sig = RepeatVector(NUM_NOTES)(Lambda(lambda x: x[:, t, :], name='style_' + str(t))(style_distributed_sig))
 
         """
         first_layer_out = note_axis_out = Dropout(dropout)(note_axis_rnn_1(note_axis_out))
@@ -98,9 +99,9 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
             note_axis_out = Concatenate()([note_axis_out, style_sliced])
 
             # Gated activation unit.
-            tanh_out = Add()([note_axis_conv_tanh[l](note_axis_out), style_distributed_tanh])
+            tanh_out = Add()([note_axis_conv_tanh[l](note_axis_out), style_sliced_tanh])
             tanh_out = Dropout(dropout)(Activation('tanh')(tanh_out))
-            sig_out = Add()([note_axis_conv_sig[l](note_axis_out), style_distributed_sig])
+            sig_out = Add()([note_axis_conv_sig[l](note_axis_out), style_sliced_sig])
             sig_out = Dropout(dropout)(Activation('sigmoid')(sig_out))
             # z = tanh(Wx Vh) x sigmoid(Wx + Vh) from Wavenet
             note_axis_out = Multiply()([tanh_out, sig_out])
