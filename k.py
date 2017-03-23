@@ -13,7 +13,7 @@ from music import OCTAVE, NUM_OCTAVES
 from midi_util import midi_encode
 import midi
 
-def build_model(time_steps=SEQUENCE_LENGTH, time_axis_units=128, note_axis_units=128, input_dropout=0.2, dropout=0.5):
+def build_model(time_steps=SEQUENCE_LENGTH, time_axis_units=256, note_axis_units=128, input_dropout=0.2, dropout=0.5):
     notes_in = Input((time_steps, NUM_NOTES))
     beat_in = Input((time_steps, NOTES_PER_BAR))
     # Target input for conditioning
@@ -40,7 +40,7 @@ def build_model(time_steps=SEQUENCE_LENGTH, time_axis_units=128, note_axis_units
         time_axis_out = Concatenate()([octave_in, pitch_pos_in, pitch_class_in, beat_in])
         first_layer_out = time_axis_out = Dropout(dropout)(time_axis_rnn_1(time_axis_out))
         time_axis_out = Dropout(dropout)(time_axis_rnn_2(time_axis_out))
-        # Skip connection
+        # Residual connection
         time_axis_out = Add()([first_layer_out, time_axis_out])
         time_axis_outs.append(time_axis_out)
 
@@ -53,7 +53,7 @@ def build_model(time_steps=SEQUENCE_LENGTH, time_axis_units=128, note_axis_units
     shift_chosen = Lambda(lambda x: tf.expand_dims(x, -1))(shift_chosen)
     # note_axis_rnn_1 = LSTM(note_axis_units, return_sequences=True, activation='tanh', name='note_axis_rnn_1')
     # note_axis_rnn_2 = LSTM(note_axis_units, return_sequences=True, activation='tanh', name='note_axis_rnn_2')
-    note_axis_convs = [Conv1D(note_axis_units, 2, dilation_rate=2 ** l, padding='causal', activation='relu', name='note_axis_rnn_' + str(l)) for l in range(6)]
+    note_axis_convs = [Conv1D(note_axis_units, 2, dilation_rate=2 ** l, padding='causal', activation='tanh', name='note_axis_rnn_' + str(l)) for l in range(6)]
 
     prediction_layer = Dense(1, activation='sigmoid')
     note_axis_outs = []
@@ -69,13 +69,13 @@ def build_model(time_steps=SEQUENCE_LENGTH, time_axis_units=128, note_axis_units
     for t in range(time_steps):
         # [batch, notes, features + 1]
         note_axis_out = Lambda(lambda x: x[:, t, :, :], name='time_' + str(t))(note_axis_input)
-
         """
         first_layer_out = note_axis_out = Dropout(dropout)(note_axis_rnn_1(note_axis_out))
         note_axis_out = Dropout(dropout)(note_axis_rnn_2(note_axis_out))
-        # Skip connection
+        # Residual connection
         note_axis_out = Add()([first_layer_out, note_axis_out])
         """
+        # TODO: Incomplete implementation
         # Create large enough dialation to cover all notes
         for l in range(6):
             prev_out = note_axis_out
@@ -111,18 +111,18 @@ def main():
 
 def build_or_load(allow_load=True):
     model = build_model()
+    model.summary()
     if allow_load:
         try:
             model.load_weights('out/model.h5')
             print('Loaded model from file.')
         except:
             print('Unable to load model from file.')
-    model.summary()
     return model
 
 def train(model, gen):
     print('Training')
-    train_data, train_labels = load_all(['data/edm'], BATCH_SIZE, SEQUENCE_LENGTH)
+    train_data, train_labels = load_all(styles, BATCH_SIZE, SEQUENCE_LENGTH)
 
     def epoch_cb(epoch, _):
         if epoch % gen == 0:
@@ -140,7 +140,7 @@ def train(model, gen):
 
     model.fit(train_data, train_labels, epochs=1000, callbacks=cbs)
 
-def generate(model, default_temp=1):
+def generate(model, default_temp=1, num_bars=16):
     print('Generating')
     notes_memory = deque([np.zeros(NUM_NOTES) for _ in range(SEQUENCE_LENGTH)], maxlen=SEQUENCE_LENGTH)
     beat_memory = deque([np.zeros(NOTES_PER_BAR) for _ in range(SEQUENCE_LENGTH)], maxlen=SEQUENCE_LENGTH)
@@ -148,7 +148,7 @@ def generate(model, default_temp=1):
     results = []
     temperature = default_temp
 
-    for t in tqdm(range(NOTES_PER_BAR * 8)):
+    for t in tqdm(range(NOTES_PER_BAR * num_bars)):
 
         # The next note being built.
         next_note = np.zeros(NUM_NOTES)
