@@ -1,5 +1,5 @@
 import tensorflow as tf
-from keras.layers import Input, Activation, LSTM, Dense, Dropout, Lambda, Reshape, Conv1D, TimeDistributed
+from keras.layers import Input, Activation, LSTM, Dense, Dropout, Lambda, Reshape, Conv1D, TimeDistributed, RepeatVector
 from keras.models import Model, load_model
 from keras.callbacks import ModelCheckpoint, LambdaCallback, ReduceLROnPlateau, EarlyStopping, TensorBoard
 from keras.layers.merge import Concatenate, Add, Multiply
@@ -81,7 +81,7 @@ def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256,
     for t in range(time_steps):
         # [batch, notes, features + 1]
         note_axis_out = Lambda(lambda x: x[:, t, :, :], name='time_' + str(t))(note_axis_input)
-        style_sliced = Lambda(lambda x: tf.reshape(x[:, t, :], [-1, NUM_NOTES, style_units]), name='style_' + str(t))(style_distributed)
+        style_sliced = RepeatVector(NUM_NOTES)(Lambda(lambda x: x[:, t, :], name='style_' + str(t))(style_distributed))
 
         """
         first_layer_out = note_axis_out = Dropout(dropout)(note_axis_rnn_1(note_axis_out))
