@@ -1,5 +1,5 @@
 import tensorflow as tf
-from keras.layers import Input, LSTM, Dense, Dropout, Lambda, Reshape, Conv1D
+from keras.layers import Input, LSTM, Dense, Dropout, Lambda, Reshape, Conv1D, TimeDistributed
 from keras.models import Model, load_model
 from keras.callbacks import ModelCheckpoint, LambdaCallback, ReduceLROnPlateau, EarlyStopping, TensorBoard
 from keras.layers.merge import Concatenate, Add
@@ -13,11 +13,15 @@ from music import OCTAVE, NUM_OCTAVES
 from midi_util import midi_encode
 import midi
 
-def build_model(time_steps=SEQUENCE_LENGTH, time_axis_units=256, note_axis_units=128, input_dropout=0.2, dropout=0.5):
+def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256, note_axis_units=128, input_dropout=0.2, dropout=0.5):
     notes_in = Input((time_steps, NUM_NOTES))
     beat_in = Input((time_steps, NOTES_PER_BAR))
+    style_in = Input((time_steps, NOTES_PER_BAR))
     # Target input for conditioning
     chosen_in = Input((time_steps, NUM_NOTES))
+
+    # Style linear projection
+    style_distributed = TimeDistributed(Dense(style_units))(style_in)
 
     """ Time axis """
     # Pad note by one octave
@@ -54,6 +58,8 @@ def build_model(time_steps=SEQUENCE_LENGTH, time_axis_units=256, note_axis_units
     # note_axis_rnn_1 = LSTM(note_axis_units, return_sequences=True, activation='tanh', name='note_axis_rnn_1')
     # note_axis_rnn_2 = LSTM(note_axis_units, return_sequences=True, activation='tanh', name='note_axis_rnn_2')
     note_axis_convs = [Conv1D(note_axis_units, 2, dilation_rate=2 ** l, padding='causal', activation='tanh', name='note_axis_rnn_' + str(l)) for l in range(6)]
+    # note_axis_conv_tanh = [Conv1D(note_axis_units, 2, dilation_rate=2 ** l, padding='causal', activation='tanh', name='note_axis_rnn_tanh_' + str(l)) for l in range(6)]
+    # note_axis_conv_sig = [Conv1D(note_axis_units, 2, dilation_rate=2 ** l, padding='causal', activation='sigmoid', name='note_axis_rnn__sig_' + str(l)) for l in range(6)]
 
     prediction_layer = Dense(1, activation='sigmoid')
     note_axis_outs = []

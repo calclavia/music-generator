@@ -110,9 +110,11 @@ def load_all(styles, batch_size, time_steps):
     """
     training_data = []
     beat_data = []
+    style_data = []
     training_labels = []
 
     for style_id, style in enumerate(styles):
+        style_hot = one_hot(style, NUM_STYLES)
         # Parallel process all files into a list of music sequences
         seqs = Parallel(n_jobs=multiprocessing.cpu_count(), backend='threading')(delayed(load_midi)(f) for f in get_all_files([style]))
 
@@ -125,8 +127,9 @@ def load_all(styles, batch_size, time_steps):
                 training_data += train_data
                 training_labels += label_data
 
-                beats, _ = stagger_2([compute_beat(i, NOTES_PER_BAR) for i in range(len(seq))], time_steps)
-                beat_data += beats
+                beat_data += stagger_2([compute_beat(i, NOTES_PER_BAR) for i in range(len(seq))], time_steps)[0]
+
+                style_data += stagger_2([style_hot for i in range(len(seq))], time_steps)[0]
 
     training_data = np.array(training_data)
     beat_data = np.array(beat_data)
