@@ -103,7 +103,7 @@ def stagger_2(data, time_steps):
         # dataY.append(data[i + time_steps])
     return dataX, dataY
 
-def load_all(styles, batch_size, time_steps):
+def load_all(styles, time_steps):
     """
     Loads all MIDI files as a piano roll.
     (For Keras)

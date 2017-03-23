@@ -81,7 +81,7 @@ def build_model(time_steps=SEQUENCE_LENGTH, style_units=32, time_axis_units=256,
     for t in range(time_steps):
         # [batch, notes, features + 1]
         note_axis_out = Lambda(lambda x: x[:, t, :, :], name='time_' + str(t))(note_axis_input)
-        style_sliced = Lambda(lambda x: tf.reshape(x[:, t, :], [-1, NUM_NOTES, 1]), name='style_' + str(t))(style_distributed)
+        style_sliced = Lambda(lambda x: tf.reshape(x[:, t, :], [-1, NUM_NOTES, style_units]), name='style_' + str(t))(style_distributed)
 
         """
         first_layer_out = note_axis_out = Dropout(dropout)(note_axis_rnn_1(note_axis_out))
@@ -156,7 +156,7 @@ def build_or_load(allow_load=True):
 
 def train(model, gen):
     print('Training')
-    train_data, train_labels = load_all(styles, BATCH_SIZE, SEQUENCE_LENGTH)
+    train_data, train_labels = load_all(styles, SEQUENCE_LENGTH)
 
     def epoch_cb(epoch, _):
         if epoch % gen == 0:
@@ -172,7 +172,7 @@ def train(model, gen):
     if gen > 0:
         cbs += [LambdaCallback(on_epoch_end=epoch_cb)]
 
-    model.fit(train_data, train_labels, epochs=1000, callbacks=cbs)
+    model.fit(train_data, train_labels, validation_split=0.1, epochs=1000, callbacks=cbs, batch_size=BATCH_SIZE)
 
 def generate(model, default_temp=1, num_bars=16, style=[0, 1, 0]):
     print('Generating')
