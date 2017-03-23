@@ -13,15 +13,12 @@ from music import OCTAVE, NUM_OCTAVES
 from midi_util import midi_encode
 import midi
 
-def build_model(time_steps=TIME_STEPS, style_units=32, input_dropout=0.2, dropout=0.5):
+def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     notes_in = Input((time_steps, NUM_NOTES))
     beat_in = Input((time_steps, NOTES_PER_BAR))
     style_in = Input((time_steps, NUM_STYLES))
     # Target input for conditioning
     chosen_in = Input((time_steps, NUM_NOTES))
-
-    # Style linear projection
-    style_distributed = TimeDistributed(Dense(style_units))(style_in)
 
     """ Time axis """
     # Pad note by one octave
@@ -40,7 +37,7 @@ def build_model(time_steps=TIME_STEPS, style_units=32, input_dropout=0.2, dropou
         # Pitch class of current note
         pitch_class_in = Lambda(lambda x: tf.reshape(tf.tile(tf.constant(one_hot(n % OCTAVE, OCTAVE), dtype=tf.float32), [tf.shape(x)[0] * time_steps]), [tf.shape(x)[0], time_steps, OCTAVE]))(notes_in)
 
-        time_axis_out = Concatenate()([octave_in, pitch_pos_in, pitch_class_in, beat_in, style_distributed])
+        time_axis_out = Concatenate()([octave_in, pitch_pos_in, pitch_class_in, beat_in])
         first_layer_out = time_axis_out = Dropout(dropout)(time_axis_rnn[0](time_axis_out))
         time_axis_out = Dropout(dropout)(time_axis_rnn[1](time_axis_out))
         # Residual connection
@@ -58,13 +55,17 @@ def build_model(time_steps=TIME_STEPS, style_units=32, input_dropout=0.2, dropou
     # Define shared layers
     # note_axis_rnn_1 = LSTM(units, return_sequences=True, activation='tanh', name='note_axis_rnn_1')
     # note_axis_rnn_2 = LSTM(units, return_sequences=True, activation='tanh', name='note_axis_rnn_2')
-    note_axis_conv_tanh = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', activation='tanh', name='note_axis_conv_tanh_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
-    note_axis_conv_sig = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', activation='sigmoid', name='note_axis_conv_sig_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
+    note_axis_conv_tanh = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', name='note_axis_conv_tanh_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
+    note_axis_conv_sig = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', name='note_axis_conv_sig_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
 
     note_axis_conv_res = [Conv1D(units, 1, padding='same', name='note_axis_conv_res_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
     note_axis_conv_skip = [Conv1D(units, 1, padding='same', name='note_axis_conv_skip_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
 
     note_axis_conv_final = [Conv1D(units, 1, padding='same', name='note_axis_conv_final_' + str(l)) for l, units in enumerate(FINAL_UNITS)]
+
+    # Style linear projection
+    style_distributed_tanh = TimeDistributed(Dense(STYLE_UNITS))(style_in)
+    style_distributed_sig = TimeDistributed(Dense(STYLE_UNITS))(style_in)
 
     prediction_layer = Dense(1, activation='sigmoid')
     note_axis_outs = []
@@ -97,19 +98,23 @@ def build_model(time_steps=TIME_STEPS, style_units=32, input_dropout=0.2, dropou
             note_axis_out = Concatenate()([note_axis_out, style_sliced])
 
             # Gated activation unit.
-            tanh_out = Dropout(dropout)(note_axis_conv_tanh[l](note_axis_out))
-            sig_out = Dropout(dropout)(note_axis_conv_sig[l](note_axis_out))
+            tanh_out = Add()([note_axis_conv_tanh[l](note_axis_out), style_distributed_tanh])
+            tanh_out = Dropout(dropout)(Activation('tanh')(tanh_out))
+            sig_out = Add()([note_axis_conv_sig[l](note_axis_out), style_distributed_sig])
+            sig_out = Dropout(dropout)(Activation('sigmoid')(sig_out))
+            # z = tanh(Wx Vh) x sigmoid(Wx + Vh) from Wavenet
             note_axis_out = Multiply()([tanh_out, sig_out])
 
             # Res conv connection
-            note_axis_out = Dropout(dropout)(note_axis_conv_res[l](note_axis_out))
+            res_out = note_axis_conv_res[l](note_axis_out)
 
             # Skip connection
-            skips.append(Dropout(dropout)(note_axis_conv_skip[l](note_axis_out)))
+            skips.append(note_axis_conv_skip[l](note_axis_out))
 
             # Residual connection
             if l > 0:
-                note_axis_out = Add()([note_axis_out, prev_out])
+                note_axis_out = Add()([res_out, prev_out])
+
         # TODO: Validate if this improves
         # Merge all skip connections
         note_axis_out = Add()(skips)
