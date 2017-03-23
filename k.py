@@ -95,13 +95,13 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
         for l, units in enumerate(NOTE_AXIS_UNITS):
             prev_out = note_axis_out
 
+            # TODO: Where would be a good place to place dropout?
             # Gated activation unit.
-            tanh_out = Add()([note_axis_conv_tanh[l](note_axis_out), style_sliced_tanh])
-            tanh_out = Dropout(dropout)(Activation('tanh')(tanh_out))
-            sig_out = Add()([note_axis_conv_sig[l](note_axis_out), style_sliced_sig])
-            sig_out = Dropout(dropout)(Activation('sigmoid')(sig_out))
-            # z = tanh(Wx Vh) x sigmoid(Wx + Vh) from Wavenet
+            tanh_out = Activation('tanh')(Add()([note_axis_conv_tanh[l](note_axis_out), style_sliced_tanh]))
+            sig_out = Activation('sigmoid')(Add()([note_axis_conv_sig[l](note_axis_out), style_sliced_sig]))
+            # z = tanh(Wx + Vh) x sigmoid(Wx + Vh) from Wavenet
             note_axis_out = Multiply()([tanh_out, sig_out])
+            note_axis_out = Dropout(dropout)(note_axis_out)
 
             # Res conv connection
             res_out = note_axis_conv_res[l](note_axis_out)
