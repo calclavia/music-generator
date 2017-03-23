@@ -95,9 +95,6 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
         for l, units in enumerate(NOTE_AXIS_UNITS):
             prev_out = note_axis_out
 
-            # Global style conditioning
-            note_axis_out = Concatenate()([note_axis_out, style_sliced])
-
             # Gated activation unit.
             tanh_out = Add()([note_axis_conv_tanh[l](note_axis_out), style_sliced_tanh])
             tanh_out = Dropout(dropout)(Activation('tanh')(tanh_out))
