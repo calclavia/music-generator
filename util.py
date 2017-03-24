@@ -2,9 +2,24 @@ import numpy as np
 import tensorflow as tf
 import math
 
+from constants import NUM_STYLES
 from music import *
 from rl import A3CAgent
 from midi_util import *
+import itertools
+
+def all_styles():
+    """
+    Returns all combinations of style vectors for generation.
+    """
+    style_vectors = []
+
+    for i in itertools.product([0, 1], repeat=NUM_STYLES):
+        v = np.array(i, dtype=float)
+        if np.sum(v) != 0:
+            style_vectors.append(v / np.sum(v))
+
+    return style_vectors
 
 def one_hot(i, nb_classes):
     arr = np.zeros((nb_classes,))

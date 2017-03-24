@@ -9,6 +9,7 @@ import argparse
 
 from constants import TIME_STEPS
 from dataset import *
+from generate import *
 from music import OCTAVE, NUM_OCTAVES
 from midi_util import midi_encode
 import midi
@@ -143,7 +144,7 @@ def main():
     if args.train:
         train(model, args.gen)
     else:
-        write_file(SAMPLES_DIR + '/result.mid', generate(model))
+        write_file('sample', generate(model))
 
 def build_or_load(allow_load=True):
     model = build_model()
@@ -162,7 +163,7 @@ def train(model, gen):
 
     def epoch_cb(epoch, _):
         if epoch % gen == 0:
-            write_file(SAMPLES_DIR + '/result_epoch_{}.mid'.format(epoch), generate(model))
+            write_file('result_epoch_{}'.format(epoch), generate(model))
 
     cbs = [
         ModelCheckpoint('out/model.h5', monitor='loss', save_best_only=True),
@@ -175,59 +176,6 @@ def train(model, gen):
         cbs += [LambdaCallback(on_epoch_end=epoch_cb)]
 
     model.fit(train_data, train_labels, validation_split=0.1, epochs=1000, callbacks=cbs, batch_size=BATCH_SIZE)
-
-def generate(model, default_temp=1, num_bars=16, style=[0, 1, 0]):
-    print('Generating')
-    notes_memory = deque([np.zeros(NUM_NOTES) for _ in range(TIME_STEPS)], maxlen=TIME_STEPS)
-    beat_memory = deque([np.zeros(NOTES_PER_BAR) for _ in range(TIME_STEPS)], maxlen=TIME_STEPS)
-    style_memory = deque([style for _ in range(TIME_STEPS)], maxlen=TIME_STEPS)
-
-    results = []
-    temperature = default_temp
-
-    for t in tqdm(range(NOTES_PER_BAR * num_bars)):
-
-        # The next note being built.
-        next_note = np.zeros(NUM_NOTES)
-
-        # Generate each note individually
-        for n in range(NUM_NOTES):
-            predictions = model.predict([
-                np.array([notes_memory]),
-                np.array([list(notes_memory)[1:] + [next_note]]),
-                np.array([beat_memory]),
-                np.array([style_memory])
-            ])
-
-            # We only care about the last time step
-            prob_dist = predictions[0][-1]
-
-            # Apply temperature
-            if temperature != 1:
-                # Inverse sigmoid
-                x = -np.log(1 / np.array(prob_dist) - 1)
-                # Apply temperature to sigmoid function
-                prob_dist = 1 / (1 + np.exp(-x / temperature))
-
-            # Flip on randomly
-            next_note[n] = 1 if np.random.random() <= prob_dist[n] else 0
-
-        # Increase temperature while silent.
-        if np.count_nonzero(next_note) == 0:
-            temperature += 0.05
-        else:
-            temperature = default_temp
-
-        notes_memory.append(next_note)
-        # Consistent with dataset representation
-        beat_memory.append(compute_beat(t, NOTES_PER_BAR))
-        results.append(next_note)
-
-    return results
-
-def write_file(name, results):
-    mf = midi_encode(unclamp_midi(results))
-    midi.write_midifile(name, mf)
 
 if __name__ == '__main__':
     main()
