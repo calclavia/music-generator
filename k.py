@@ -33,7 +33,7 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE]]), name='padded_note_in')(out)
     pitch_class_bins = Lambda(lambda x: tf.reduce_sum([x[:, :, i*OCTAVE:i*OCTAVE+OCTAVE] for i in range(NUM_OCTAVES)], axis=0), name='pitch_class_bins')(out)
 
-    time_axis_rnn = [LSTM(units, return_sequences=True, activation='tanh', name='time_axis_rnn_' + str(i)) for i, units in enumerate(TIME_AXIS_UNITS)]
+    time_axis_rnn = [LSTM(units, return_sequences=True, name='time_axis_rnn_' + str(i)) for i, units in enumerate(TIME_AXIS_UNITS)]
     time_axis_outs = []
 
     for n in range(OCTAVE, NUM_NOTES + OCTAVE):
@@ -63,8 +63,8 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     shift_chosen = Lambda(lambda x: tf.expand_dims(x, -1))(shift_chosen)
 
     # Define shared layers
-    # note_axis_rnn_1 = LSTM(units, return_sequences=True, activation='tanh', name='note_axis_rnn_1')
-    # note_axis_rnn_2 = LSTM(units, return_sequences=True, activation='tanh', name='note_axis_rnn_2')
+    # note_axis_rnn_1 = LSTM(units, return_sequences=True, name='note_axis_rnn_1')
+    # note_axis_rnn_2 = LSTM(units, return_sequences=True, name='note_axis_rnn_2')
     note_axis_conv_tanh = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', name='note_axis_conv_tanh_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
     note_axis_conv_sig = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', name='note_axis_conv_sig_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
 
