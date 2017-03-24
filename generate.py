@@ -19,6 +19,7 @@ class MusicGeneration:
 
         # The next note being built
         self.next_note = np.zeros(NUM_NOTES)
+        self.silent_time = 0
 
         # The outputs
         self.results = []
@@ -46,8 +47,11 @@ class MusicGeneration:
         """
         # Increase temperature while silent.
         if np.count_nonzero(self.next_note) == 0:
-            self.temperature += 0.05
+            self.silent_time += 1
+            if self.silent_time >= NOTES_PER_BAR:
+                self.temperature += 0.1
         else:
+            self.silent_time = 0
             self.temperature = self.default_temp
 
         self.notes_memory.append(self.next_note)
@@ -70,7 +74,7 @@ def apply_temperature(prob, temperature):
         prob = 1 / (1 + np.exp(-x / temperature))
     return prob
 
-def generate(model, default_temp=1, num_bars=8, styles=None):
+def generate(model, num_bars=8, styles=None):
     if styles is None:
         styles = all_styles()
 
