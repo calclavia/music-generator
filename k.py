@@ -105,7 +105,6 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
         for l, units in enumerate(NOTE_AXIS_UNITS):
             prev_out = note_axis_out
 
-            # TODO: Where would be a good place to place dropout?
             # Gated activation unit.
             tanh_out = Activation('tanh')(Add()([note_axis_conv_tanh[l](note_axis_out), style_sliced_tanh]))
             sig_out = Activation('sigmoid')(Add()([note_axis_conv_sig[l](note_axis_out), style_sliced_tanh]))
@@ -128,10 +127,9 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
         # TODO: Validate if this improves
         # Merge all skip connections
         # note_axis_out = Add()(skips)
-
         for l, units in enumerate(FINAL_UNITS):
-            note_axis_out = Activation('relu')(note_axis_out)
             note_axis_out = note_axis_conv_final[l](note_axis_out)
+            note_axis_out = Activation('relu')(note_axis_out)
             note_axis_out = Dropout(dropout)(note_axis_out)
 
         # Apply prediction layer
