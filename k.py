@@ -115,6 +115,7 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
 
             # Res conv connection
             res_out = note_axis_out
+            # TODO: This seems like redundant.
             # res_out = note_axis_conv_res[l](note_axis_out)
 
             # Skip connection
@@ -124,8 +125,7 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
             if l > 0:
                 note_axis_out = Add()([res_out, prev_out])
 
-        # TODO: Validating if this improves...
-        # Merge all skip connections
+        # Merge all skip connections. Improves convergence and output.
         note_axis_out = Add()(skips)
 
         for l, units in enumerate(FINAL_UNITS):

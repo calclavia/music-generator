@@ -19,7 +19,7 @@ class MusicGeneration:
 
         # The next note being built
         self.next_note = np.zeros(NUM_NOTES)
-        self.silent_time = 0
+        self.silent_time = NOTES_PER_BAR
 
         # The outputs
         self.results = []
