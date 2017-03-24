@@ -68,8 +68,8 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     note_axis_conv_tanh = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', name='note_axis_conv_tanh_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
     note_axis_conv_sig = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', name='note_axis_conv_sig_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
 
-    # note_axis_conv_res = [Conv1D(units, 1, padding='same', name='note_axis_conv_res_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
-    # note_axis_conv_skip = [Conv1D(units, 1, padding='same', name='note_axis_conv_skip_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
+    note_axis_conv_res = [Conv1D(units, 1, padding='same', name='note_axis_conv_res_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
+    note_axis_conv_skip = [Conv1D(units, 1, padding='same', name='note_axis_conv_skip_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
 
     note_axis_conv_final = [Conv1D(units, 1, padding='same', name='note_axis_conv_final_' + str(l)) for l, units in enumerate(FINAL_UNITS)]
 
@@ -100,7 +100,7 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
         # Residual connection
         note_axis_out = Add()([first_layer_out, note_axis_out])
         """
-        # skips = []
+        skips = []
         # Create large enough dilation to cover all notes
         for l, units in enumerate(NOTE_AXIS_UNITS):
             prev_out = note_axis_out
@@ -118,18 +118,19 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
             # res_out = note_axis_conv_res[l](note_axis_out)
 
             # Skip connection
-            # skips.append(note_axis_conv_skip[l](note_axis_out))
+            skips.append(note_axis_conv_skip[l](note_axis_out))
 
             # Residual connection
             if l > 0:
                 note_axis_out = Add()([res_out, prev_out])
 
-        # TODO: Validate if this improves
+        # TODO: Validating if this improves...
         # Merge all skip connections
-        # note_axis_out = Add()(skips)
+        note_axis_out = Add()(skips)
+
         for l, units in enumerate(FINAL_UNITS):
-            note_axis_out = note_axis_conv_final[l](note_axis_out)
             note_axis_out = Activation('relu')(note_axis_out)
+            note_axis_out = note_axis_conv_final[l](note_axis_out)
             note_axis_out = Dropout(dropout)(note_axis_out)
 
         # Apply prediction layer
