@@ -71,10 +71,10 @@ def apply_temperature(prob, temperature):
     return prob
 
 def generate(model, default_temp=1, num_bars=8, styles=None):
-    print('Generating')
-
     if styles is None:
         styles = all_styles()
+
+    print('Generating with styles:', styles)
 
     generations = [MusicGeneration(style) for style in styles]
 

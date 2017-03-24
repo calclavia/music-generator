@@ -1,5 +1,5 @@
 import tensorflow as tf
-from keras.layers import Input, Activation, LSTM, Dense, Dropout, Lambda, Reshape, Conv1D, TimeDistributed, RepeatVector
+from keras.layers import Input, Activation, GRU, Dense, Dropout, Lambda, Reshape, Conv1D, TimeDistributed, RepeatVector
 from keras.models import Model, load_model
 from keras.callbacks import ModelCheckpoint, LambdaCallback, ReduceLROnPlateau, EarlyStopping, TensorBoard
 from keras.layers.merge import Concatenate, Add, Multiply
@@ -21,13 +21,16 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     # Target input for conditioning
     chosen_in = Input((time_steps, NUM_NOTES))
 
+    # Style linear projection
+    style_distributed = TimeDistributed(Dense(STYLE_UNITS))(style_in)
+
     """ Time axis """
     # Pad note by one octave
     out = Dropout(input_dropout)(notes_in)
     padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE]]), name='padded_note_in')(out)
     pitch_class_bins = Lambda(lambda x: tf.reduce_sum([x[:, :, i*OCTAVE:i*OCTAVE+OCTAVE] for i in range(NUM_OCTAVES)], axis=0), name='pitch_class_bins')(out)
 
-    time_axis_rnn = [LSTM(units, return_sequences=True, activation='tanh', name='time_axis_rnn_' + str(i)) for i, units in enumerate(TIME_AXIS_UNITS)]
+    time_axis_rnn = [GRU(units, return_sequences=True, activation='tanh', name='time_axis_rnn_' + str(i)) for i, units in enumerate(TIME_AXIS_UNITS)]
     time_axis_outs = []
 
     for n in range(OCTAVE, NUM_NOTES + OCTAVE):
@@ -38,7 +41,7 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
         # Pitch class of current note
         pitch_class_in = Lambda(lambda x: tf.reshape(tf.tile(tf.constant(one_hot(n % OCTAVE, OCTAVE), dtype=tf.float32), [tf.shape(x)[0] * time_steps]), [tf.shape(x)[0], time_steps, OCTAVE]))(notes_in)
 
-        time_axis_out = Concatenate()([octave_in, pitch_pos_in, pitch_class_in, beat_in])
+        time_axis_out = Concatenate()([octave_in, pitch_pos_in, pitch_class_in, beat_in, style_distributed])
         first_layer_out = time_axis_out = Dropout(dropout)(time_axis_rnn[0](time_axis_out))
         time_axis_out = Dropout(dropout)(time_axis_rnn[1](time_axis_out))
         # Residual connection
@@ -54,8 +57,8 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     shift_chosen = Lambda(lambda x: tf.expand_dims(x, -1))(shift_chosen)
 
     # Define shared layers
-    # note_axis_rnn_1 = LSTM(units, return_sequences=True, activation='tanh', name='note_axis_rnn_1')
-    # note_axis_rnn_2 = LSTM(units, return_sequences=True, activation='tanh', name='note_axis_rnn_2')
+    # note_axis_rnn_1 = GRU(units, return_sequences=True, activation='tanh', name='note_axis_rnn_1')
+    # note_axis_rnn_2 = GRU(units, return_sequences=True, activation='tanh', name='note_axis_rnn_2')
     note_axis_conv_tanh = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', name='note_axis_conv_tanh_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
     note_axis_conv_sig = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', name='note_axis_conv_sig_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
 
@@ -167,8 +170,8 @@ def train(model, gen):
 
     cbs = [
         ModelCheckpoint('out/model.h5', monitor='loss', save_best_only=True),
-        ReduceLROnPlateau(monitor='loss', patience=3),
-        EarlyStopping(monitor='loss', patience=9),
+        ReduceLROnPlateau(patience=2),
+        EarlyStopping(patience=5),
         TensorBoard(log_dir='out/logs', histogram_freq=1)
     ]
 
