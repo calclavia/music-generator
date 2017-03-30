@@ -74,7 +74,7 @@ def apply_temperature(prob, temperature):
         prob = 1 / (1 + np.exp(-x / temperature))
     return prob
 
-def generate(model, num_bars=8, styles=None):
+def generate(model, num_bars=32, styles=None):
     if styles is None:
         styles = all_styles()
 
