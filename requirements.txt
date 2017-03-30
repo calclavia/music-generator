@@ -4,4 +4,4 @@ gym
 tensorflow-gpu
 joblib
 tqdm
-python-midi
+h5py

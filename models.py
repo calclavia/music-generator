@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from music import NOTES_PER_BAR, MAX_NOTE, MIN_NOTE, NUM_OCTAVES, OCTAVE
-from constants import NUM_STYLES
+from constants import *
 from util import one_hot
 from tqdm import tqdm
 from dataset import compute_beat, compute_completion
@@ -9,8 +9,6 @@ from dataset import compute_beat, compute_completion
 from keras.layers.core import Flatten, Reshape, RepeatVector, Dense
 from keras.layers.convolutional import Conv1D
 from keras.layers.pooling import MaxPooling1D
-
-NUM_NOTES = MAX_NOTE - MIN_NOTE
 
 def repeat(x, batch_size, time_steps):
     return np.reshape(np.repeat(x, batch_size * time_steps), [batch_size, time_steps, -1])
@@ -37,7 +35,7 @@ def rnn(units, dropout):
         return rnn_out, init_state, final_state
     return f
 
-def time_axis_block(dropout=1, units=[128]):
+def time_axis_block(dropout, units=TIME_AXIS_UNITS):
     """
     Note invariant time axis layer.
     """
@@ -89,7 +87,7 @@ def time_axis_block(dropout=1, units=[128]):
         return out, init_states, final_states
     return f
 
-def note_axis_block(dropout=1):
+def note_axis_block(dropout, units=NOTE_AXIS_UNITS):
     """
     The pitch block that conditions each note's generation on the
     previous note within one time step.
@@ -146,16 +144,21 @@ def note_axis_block(dropout=1):
 
                 out = rnn_input
 
+                """
+                # TODO: Verify correctness
                 # Create large enough dialation to cover all notes
-                for l, num_units in enumerate([64, 64, 128, 128, 256, 256]):
+                for l, num_units in enumerate(units):
                     prev_out = out
                     out = Conv1D(num_units, 2, dilation_rate=2 ** l, padding='causal')(out)
+
                     out = tf.nn.relu(out)
+                    out = tf.nn.dropout(out, dropout)
 
                     # Residual connection
-                    # TODO: Skip connection vs residual connections?
-                    if l > 0 and l % 2 != 0:
+                    if l > 0:
                         out += prev_out
+                """
+                rnn_out, *_ = rnn([128, 64], dropout)(rnn_input)
 
                 # Dense prediction layer
                 out = tf.layers.dense(inputs=out, units=1)
@@ -173,9 +176,9 @@ def note_axis_block(dropout=1):
     return f
 
 class MusicModel:
-    def __init__(self, batch_size, time_steps, training=True):
+    def __init__(self, batch_size, time_steps, training=True, style_units=STYLE_UNITS):
         # Dropout keep probabilities
-        input_dropout = 0.8 if training else 1
+        input_dropout = 0.75 if training else 1
         dropout = 0.5 if training else 1
 
         # RNN states
@@ -199,13 +202,15 @@ class MusicModel:
 
         # Create distributed representation of style
         with tf.variable_scope('style_distributed'):
-            style_dist = tf.layers.dense(self.style_in, units=32, activation=tf.nn.tanh)
+            style_dist = tf.layers.dense(self.style_in, units=style_units, activation=tf.nn.tanh)
             style_dist = tf.nn.dropout(style_dist, dropout)
             # Repeat the style input over time steps
             style_dist_repeat = RepeatVector(time_steps)(style_dist)
 
         # Context to help generation
-        contexts = tf.concat([self.beat_in, self.progress_in, style_dist_repeat], 2, name='context')
+        # TODO: Progress disabled.
+        # contexts = tf.concat([self.beat_in, self.progress_in, style_dist_repeat], 2, name='context')
+        contexts = tf.concat([self.beat_in, style_dist_repeat], 2, name='context')
 
         # Note input
         out = self.note_in
@@ -293,6 +298,7 @@ class MusicModel:
 
             # Train every single sequence
             for i in t:
+                step = 0
                 seq = train_seqs[i]
                 # Reset state every sequence
                 states = [None for _ in self.init_states]
@@ -312,19 +318,24 @@ class MusicModel:
                         if s is not None:
                             feed_dict[tf_s] = s
 
-                    pred, summary, step, t_loss, t_f_score, _, *states = sess.run([
-                            self.pred,
-                            self.merged_summaries,
-                            self.global_step,
-                            self.loss,
-                            self.fmeasure,
-                            self.train_step,
-                        ] + self.final_states,
-                        feed_dict
-                    )
+                    # Build query
+                    query = [
+                        self.pred,
+                        self.global_step,
+                        self.loss,
+                        self.fmeasure,
+                        self.train_step,
+                    ] + self.final_states
 
-                    # Add summary to Tensorboard
-                    writer.add_summary(summary, step)
+                    # Summary every 10 steps
+                    if step % 10 == 0:
+                        query = [self.merged_summaries] + query
+                        summary, pred, step, t_loss, t_f_score, _, *states = sess.run(query, feed_dict)
+
+                        # Add summary to Tensorboard
+                        writer.add_summary(summary, step)
+                    else:
+                        pred, step, t_loss, t_f_score, _, *states = sess.run(query, feed_dict)
 
                     if step % 100 == 0:
                         self.saver.save(sess, model_file, global_step=step)
