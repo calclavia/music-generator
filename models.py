@@ -62,19 +62,12 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     shift_chosen = Lambda(lambda x: tf.expand_dims(x, -1))(shift_chosen)
 
     # Define shared layers
-    # note_axis_rnn_1 = LSTM(units, return_sequences=True, activation='tanh', name='note_axis_rnn_1')
-    # note_axis_rnn_2 = LSTM(units, return_sequences=True, activation='tanh', name='note_axis_rnn_2')
     note_axis_conv_tanh = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', name='note_axis_conv_tanh_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
     note_axis_conv_sig = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', name='note_axis_conv_sig_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
 
-    note_axis_conv_res = [Conv1D(units, 1, padding='same', name='note_axis_conv_res_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
     note_axis_conv_skip = [Conv1D(units, 1, padding='same', name='note_axis_conv_skip_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
 
     note_axis_conv_final = [Conv1D(units, 1, padding='same', name='note_axis_conv_final_' + str(l)) for l, units in enumerate(FINAL_UNITS)]
-
-    # Style linear projection
-    style_distributed_tanh = TimeDistributed(Dense(STYLE_UNITS))(style_in)
-    # style_distributed_sig = TimeDistributed(Dense(STYLE_UNITS))(style_in)
 
     prediction_layer = Dense(1, activation='sigmoid')
     note_axis_outs = []
@@ -90,8 +83,7 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     for t in range(time_steps):
         # [batch, notes, features + 1]
         note_axis_out = Lambda(lambda x: x[:, t, :, :], name='time_' + str(t))(note_axis_input)
-        style_sliced_tanh = RepeatVector(NUM_NOTES)(Lambda(lambda x: x[:, t, :], name='style_tanh_' + str(t))(style_distributed_tanh))
-        # style_sliced_sig = RepeatVector(NUM_NOTES)(Lambda(lambda x: x[:, t, :], name='style_sig_' + str(t))(style_distributed_sig))
+        style_sliced = RepeatVector(NUM_NOTES)(Lambda(lambda x: x[:, t, :], name='style_tanh_' + str(t))(style_distributed))
 
         """
         first_layer_out = note_axis_out = Dropout(dropout)(note_axis_rnn_1(note_axis_out))
@@ -105,17 +97,14 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
             prev_out = note_axis_out
 
             # Gated activation unit.
-            tanh_out = Activation('tanh')(Add()([note_axis_conv_tanh[l](note_axis_out), style_sliced_tanh]))
-            sig_out = Activation('sigmoid')(Add()([note_axis_conv_sig[l](note_axis_out), style_sliced_tanh]))
-            # sig_out = Activation('sigmoid')(Add()([note_axis_conv_sig[l](note_axis_out), style_sliced_sig]))
+            tanh_out = Activation('tanh')(Add()([note_axis_conv_tanh[l](note_axis_out), style_sliced]))
+            sig_out = Activation('sigmoid')(Add()([note_axis_conv_sig[l](note_axis_out), style_sliced]))
             # z = tanh(Wx + Vh) x sigmoid(Wx + Vh) from Wavenet
             note_axis_out = Multiply()([tanh_out, sig_out])
             note_axis_out = Dropout(dropout)(note_axis_out)
 
             # Res conv connection
             res_out = note_axis_out
-            # TODO: This seems like redundant.
-            # res_out = note_axis_conv_res[l](note_axis_out)
 
             # Skip connection
             skips.append(note_axis_conv_skip[l](note_axis_out))
