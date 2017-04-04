@@ -1,5 +1,5 @@
 import tensorflow as tf
-from keras.layers import Input, Activation, LSTM, Dense, Dropout, Lambda, Reshape, Conv1D, TimeDistributed, RepeatVector
+from keras.layers import Input, Flatten, Activation, LSTM, Dense, Dropout, Lambda, Reshape, Conv1D, TimeDistributed, RepeatVector
 from keras.models import Model, load_model
 from keras.callbacks import ModelCheckpoint, LambdaCallback, ReduceLROnPlateau, EarlyStopping, TensorBoard
 from keras.layers.merge import Concatenate, Add, Multiply
@@ -29,34 +29,35 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     """
     # Pad note by one octave
     out = Dropout(input_dropout)(notes_in)
-    padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE]]), name='padded_note_in')(out)
-    pitch_class_bins = Lambda(lambda x: tf.reduce_sum([x[:, :, i*OCTAVE:i*OCTAVE+OCTAVE] for i in range(NUM_OCTAVES)], axis=0), name='pitch_class_bins')(out)
 
-    time_axis_rnn = [LSTM(units, return_sequences=True, activation='tanh', name='time_axis_rnn_' + str(i)) for i, units in enumerate(TIME_AXIS_UNITS)]
-    time_axis_outs = []
+    # Extract note invariant features
+    # Convolve across notes, sharing the note features across time steps
+    out = Reshape((time_steps, NUM_NOTES, 1))(out)
 
-    for n in range(OCTAVE, NUM_NOTES + OCTAVE):
-        # Input one octave of notes
-        octave_in = Lambda(lambda x: x[:, :, n - OCTAVE:n + OCTAVE + 1], name='note_' + str(n))(padded_notes)
-        # Pitch position of note
-        pitch_pos_in = Lambda(lambda x: tf.fill([tf.shape(x)[0], time_steps, 1], n / (NUM_NOTES - 1)))(notes_in)
-        # Pitch class of current note
-        pitch_class_in = Lambda(lambda x: tf.reshape(tf.tile(tf.constant(one_hot(n % OCTAVE, OCTAVE), dtype=tf.float32), [tf.shape(x)[0] * time_steps]), [tf.shape(x)[0], time_steps, OCTAVE]))(notes_in)
+    for l, units in enumerate(NOTE_UNITS):
+        out = TimeDistributed(Conv1D(units, 3))(out)
+        out = Activation('relu')(out)
+        out = Dropout(dropout)(out)
 
-        time_axis_out = Concatenate()([octave_in, pitch_pos_in, pitch_class_in, beat_in, style_distributed])
-        first_layer_out = time_axis_out = Dropout(dropout)(time_axis_rnn[0](time_axis_out))
-        time_axis_out = Dropout(dropout)(time_axis_rnn[1](time_axis_out))
-        # Residual connection
-        time_axis_out = Add()([first_layer_out, time_axis_out])
-        time_axis_outs.append(time_axis_out)
+    # Flatten all note features
+    out = TimeDistributed(Flatten())(out)
 
-    out = Concatenate()(time_axis_outs)
+    out = Concatenate()([out, beat_in, style_in])
+
+    # Recurrent layers
+    for l, units in enumerate(TIME_AXIS_UNITS):
+        out = LSTM(units, return_sequences=True, name='time_axis_rnn_' + str(l))(out)
+        out = Activation('tanh')(out)
+        out = Dropout(dropout)(out)
+
+    # Feed the same output units for each note
+    out = TimeDistributed(RepeatVector(NUM_NOTES))(out)
 
     """
     Note Axis & Prediction Layer
     Responsible for learning spatial patterns and harmonies.
     """
-    # Shift target one note to the left. []
+    # Shift target one note to the left.
     shift_chosen = Lambda(lambda x: tf.pad(x[:, :, :-1], [[0, 0], [0, 0], [1, 0]]))(chosen_in)
     shift_chosen = Dropout(input_dropout)(shift_chosen)
     shift_chosen = Lambda(lambda x: tf.expand_dims(x, -1))(shift_chosen)
