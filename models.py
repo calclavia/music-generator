@@ -97,13 +97,74 @@ def time_axis(time_steps, input_dropout, dropout):
     # Add in contextual information
     out = Concatenate()([out, pitch_pos_in, pitch_class_in])
 
-    temporal_context =  Concatenate()([beat_in, style_distributed])
+    temporal_context = Concatenate()([beat_in, style_distributed])
 
     # Apply layers with increasing dilation
     for l, units in enumerate(TIME_AXIS_UNITS):
-        out = conv_rnn(units, 3, 2 ** l, dropout)(out)
+        prev = out
+        out = conv_rnn(units, 3, 2 ** l, dropout)(out, temporal_context)
 
-    return Model([notes_in, beat_in, style_in], out)
+        if l > 0:
+            out = Add()([out, prev])
+
+    return Model([notes_in, beat_in, style_in], out, name='time_axis')
+
+def di_causal_conv(dropout):
+    """
+    Builds a casual dilation convolution model
+    """
+    # Define inputs
+    num_features = TIME_AXIS_UNITS[-1] + 1
+    # TODO: Temporary hack to unpack inputs
+    dc_in = Input((NUM_NOTES, num_features + STYLE_UNITS), name='dc_input')
+    note_features = Lambda(lambda x: x[:, :, :num_features])(dc_in)
+    style_context = Lambda(lambda x: x[:, :, num_features:])(dc_in)
+
+    # Skip connections
+    skips = []
+
+    dc_out = note_features
+
+    # Create large enough dilation to cover all notes
+    for l, units in enumerate(NOTE_AXIS_UNITS):
+        prev_out = dc_out
+
+        # Gated activation unit.
+        tanh_out = Conv1D(units, 2, dilation_rate=2 ** l, padding='causal')(dc_out)
+        tanh_out = Add()([tanh_out, style_context])
+        tanh_out = Activation('tanh')(tanh_out)
+
+        sig_out = Conv1D(units, 2, dilation_rate=2 ** l, padding='causal')(dc_out)
+        sig_out = Add()([sig_out, style_context])
+        sig_out = Activation('sigmoid')(sig_out)
+
+        # z = tanh(Wx + Vh) x sigmoid(Wx + Vh) from Wavenet
+        dc_out = Multiply()([tanh_out, sig_out])
+        dc_out = Dropout(dropout)(dc_out)
+
+        # Skip connection
+        skip_out = Conv1D(units, 1, padding='same')(dc_out)
+        skips.append(skip_out)
+
+        # Residual connection
+        if l > 0:
+            dc_out = Add()([dc_out, prev_out])
+
+    # Merge all skip connections. Improves convergence and output.
+    dc_out = Add()(skips)
+
+    for l, units in enumerate(FINAL_UNITS):
+        # TODO: Relu before or after?
+        dc_out = Activation('relu')(dc_out)
+        dc_out = Conv1D(units, 1, padding='same')(dc_out)
+        dc_out = Dropout(dropout)(dc_out)
+
+    # Apply prediction layer
+    dc_out = Dense(1)(dc_out)
+    dc_out = Activation('sigmoid')(dc_out)
+    # From remove the extra dimension
+    dc_out = Reshape((NUM_NOTES,))(dc_out)
+    return Model(dc_in, dc_out)
 
 def note_axis(time_steps, input_dropout, dropout):
     """
@@ -134,67 +195,22 @@ def note_axis(time_steps, input_dropout, dropout):
     # Style for each note repeated [batch, time, notes, STYLE_UNITS]
     style_repeated = TimeDistributed(RepeatVector(NUM_NOTES))(style_distributed)
 
-    # Skip connections
-    skips = []
+    # Create a dilated convolution model and apply it every time step
+    di_conv_model = di_causal_conv(dropout)
+    dc_input = Concatenate()([note_axis_input, style_repeated])
+    out = TimeDistributed(di_conv_model)(dc_input)
 
-    note_axis_out = note_axis_input
-
-    # Create large enough dilation to cover all notes
-    for l, units in enumerate(NOTE_AXIS_UNITS):
-        prev_out = note_axis_out
-
-        # Gated activation unit.
-        tanh_out = TimeDistributed(Conv1D(units, 2, dilation_rate=2 ** l, padding='causal'))(note_axis_out)
-        tanh_out = Add()([tanh_out, style_repeated])
-        tanh_out = Activation('tanh')(tanh_out)
-
-        sig_out = TimeDistributed(Conv1D(units, 2, dilation_rate=2 ** l, padding='causal'))(note_axis_out)
-        sig_out = Add()([sig_out, style_repeated])
-        sig_out = Activation('sigmoid')(sig_out)
-
-        # z = tanh(Wx + Vh) x sigmoid(Wx + Vh) from Wavenet
-        note_axis_out = Multiply()([tanh_out, sig_out])
-        note_axis_out = Dropout(dropout)(note_axis_out)
-
-        # Skip connection
-        skip_out = TimeDistributed(Conv1D(units, 1, padding='same'))(note_axis_out)
-        skips.append(skip_out)
-
-        # Residual connection
-        if l > 0:
-            note_axis_out = Add()([note_axis_out, prev_out])
-
-    # Merge all skip connections. Improves convergence and output.
-    note_axis_out = Add()(skips)
-
-    for l, units in enumerate(FINAL_UNITS):
-        note_axis_out = Activation('relu')(note_axis_out)
-        note_axis_out = TimeDistributed(Conv1D(units, 1, padding='same'))(note_axis_out)
-        note_axis_out = Dropout(dropout)(note_axis_out)
-
-    # Apply prediction layer
-    note_axis_out = TimeDistributed(Dense(1))(note_axis_out)
-    note_axis_out = Activation('sigmoid')(note_axis_out)
-    # From 4D to 3D tensor
-    note_axis_out = Reshape((time_steps, NUM_NOTES))(note_axis_out)
-
-    return Model([note_features, chosen_in, style_in], note_axis_out)
+    return Model([note_features, chosen_in, style_in], out, name='note_axis')
 
 def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     """
     Define inputs
     """
-    notes_in = Input((time_steps, NUM_NOTES))
-    beat_in = Input((time_steps, NOTES_PER_BAR))
-    style_in = Input((time_steps, NUM_STYLES))
+    notes_in = Input((time_steps, NUM_NOTES), name='note_in')
+    beat_in = Input((time_steps, NOTES_PER_BAR), name='beat_in')
+    style_in = Input((time_steps, NUM_STYLES), name='style_in')
     # Target input for conditioning
-    chosen_in = Input((time_steps, NUM_NOTES))
-
-    # Style linear projection
-    style_distributed = TimeDistributed(Dense(STYLE_UNITS))(style_in)
-
-    pitch_pos_in = Lambda(pitch_pos_in_f(time_steps))(notes_in)
-    pitch_class_in = Lambda(pitch_class_in_f(time_steps))(notes_in)
+    chosen_in = Input((time_steps, NUM_NOTES), name='chosen_in')
 
     # Apply time-axis model
     time_axis_model = time_axis(time_steps, input_dropout, dropout)
