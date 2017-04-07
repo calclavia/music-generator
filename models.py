@@ -40,10 +40,17 @@ def conv_rnn(units, kernel, dilation, dropout):
     weight-shared LSTM layer.
     """
     def f(out, temporal_context=None):
-        # Apply same convolution across time slices.
-        out = TimeDistributed(Conv1D(units, kernel, dilation_rate=dilation, padding='same'))(out)
-        # TODO: Experiment with gated activation function
-        out = Activation('relu')(out)
+        # Gated activation unit.
+        tanh_out = TimeDistributed(Conv1D(units, kernel, dilation_rate=dilation, padding='same'))(out)
+        # tanh_out = Add()([tanh_out, style_context])
+        tanh_out = Activation('tanh')(tanh_out)
+
+        sig_out = TimeDistributed(Conv1D(units, kernel, dilation_rate=dilation, padding='same'))(out)
+        # sig_out = Add()([sig_out, style_context])
+        sig_out = Activation('sigmoid')(sig_out)
+
+        # z = tanh(Wx + Vh) x sigmoid(Wx + Vh) from Wavenet
+        out = Multiply()([tanh_out, sig_out])
         out = Dropout(dropout)(out)
 
         # Shared LSTM layer
