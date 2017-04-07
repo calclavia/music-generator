@@ -40,6 +40,7 @@ def conv_rnn(units, kernel, dilation, dropout):
     weight-shared LSTM layer.
     """
     def f(out, temporal_context=None):
+        """
         # Gated activation unit.
         tanh_out = TimeDistributed(Conv1D(units, kernel, dilation_rate=dilation, padding='same'))(out)
         # tanh_out = Add()([tanh_out, style_context])
@@ -52,6 +53,11 @@ def conv_rnn(units, kernel, dilation, dropout):
         # z = tanh(Wx + Vh) x sigmoid(Wx + Vh) from Wavenet
         out = Multiply()([tanh_out, sig_out])
         out = Dropout(dropout)(out)
+        """
+
+        out = TimeDistributed(Conv1D(units, kernel, dilation_rate=dilation, padding='same'))(out)
+        out = Dropout(dropout)(out)
+        # TODO: No activation?
 
         # Shared LSTM layer
         time_axis_rnn = LSTM(units, return_sequences=True)
@@ -106,10 +112,11 @@ def time_axis(time_steps, input_dropout, dropout):
 
     temporal_context = Concatenate()([beat_in, style_distributed])
 
+    # TODO: Consider skip connections?
     # Apply layers with increasing dilation
     for l, units in enumerate(TIME_AXIS_UNITS):
         prev = out
-        out = conv_rnn(units, 3, 2 ** l, dropout)(out, temporal_context)
+        out = conv_rnn(units, 5, 2 ** l, dropout)(out, temporal_context)
 
         if l > 0:
             out = Add()([out, prev])
