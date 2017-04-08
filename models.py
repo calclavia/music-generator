@@ -125,7 +125,8 @@ def time_axis(time_steps, input_dropout, dropout):
 
     # TODO: Octave convolution
     # Project octave
-    out = TimeDistributed(Conv1D(OCTAVE * 2 + 1, OCTAVE * 2, padding='same'))(out)
+    out = TimeDistributed(Conv1D(128, OCTAVE * 2, padding='same'))(out)
+    out = Activation('relu')(out)
 
     for n in range(NUM_NOTES):
         # Pitch position of note
