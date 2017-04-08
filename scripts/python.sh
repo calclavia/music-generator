@@ -1,6 +1,8 @@
 # Install all Python related things
 # Run this file from the parent dir of the repository
 
+sudo apt-get update
+
 # Python files
 yes | sudo apt-get install python3 python3-pip python3-dev
 
