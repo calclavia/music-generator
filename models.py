@@ -98,18 +98,53 @@ def time_axis(time_steps, input_dropout, dropout):
     # TODO: Share layer with note_axis
     # Style linear projection
     style_distributed = TimeDistributed(Dense(STYLE_UNITS))(style_in)
-
+    """
     # TODO: Share layer with note_axis
     pitch_pos_in = Lambda(pitch_pos_in_f(time_steps))(notes_in)
     pitch_class_in = Lambda(pitch_class_in_f(time_steps))(notes_in)
+    """
 
     # Apply dropout to input
     out = Dropout(input_dropout)(notes_in)
+
+    # TODO: Experiment with changing this into a conv
+    # padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE]]), name='padded_note_in')(out)
+    # pitch_class_bins = Lambda(lambda x: tf.reduce_sum([x[:, :, i*OCTAVE:i*OCTAVE+OCTAVE] for i in range(NUM_OCTAVES)], axis=0), name='pitch_class_bins')(out)
+
     # Change input into 4D tensor
     out = Reshape((time_steps, NUM_NOTES, 1))(out)
+    """
     # Add in contextual information
     out = Concatenate()([out, pitch_pos_in, pitch_class_in])
+    """
 
+    """"""
+
+    time_axis_rnn = [LSTM(units, return_sequences=True, activation='tanh', name='time_axis_rnn_' + str(i)) for i, units in enumerate(TIME_AXIS_UNITS)]
+    time_axis_outs = []
+
+    # TODO: Octave convolution
+    # Project octave
+    out = TimeDistributed(Conv1D(128, OCTAVE * 2, padding='same'))(out)
+
+    for n in range(NUM_NOTES):
+        # Pitch position of note
+        pitch_pos_in = Lambda(lambda x: tf.fill([tf.shape(x)[0], time_steps, 1], n / (NUM_NOTES - 1)))(notes_in)
+        # Pitch class of current note
+        pitch_class_in = Lambda(lambda x: tf.reshape(tf.tile(tf.constant(one_hot(n % OCTAVE, OCTAVE), dtype=tf.float32), [tf.shape(x)[0] * time_steps]), [tf.shape(x)[0], time_steps, OCTAVE]))(notes_in)
+
+        # Input one octave of notes
+        slice_out = Lambda(lambda x: x[:, :, n, :], name='note_' + str(n))(out)
+
+        time_axis_out = Concatenate()([slice_out, pitch_pos_in, pitch_class_in, beat_in, style_distributed])
+        time_axis_out = Dropout(dropout)(time_axis_rnn[0](time_axis_out))
+        time_axis_outs.append(time_axis_out)
+
+    # Stack each note slice into 4D vec of note features
+    # [batch, time, notes, features]
+    out = Lambda(lambda x: tf.stack(x, axis=2))(time_axis_outs)
+    """"""
+    """
     temporal_context = Concatenate()([beat_in, style_distributed])
 
     # TODO: Consider skip connections?
@@ -121,7 +156,7 @@ def time_axis(time_steps, input_dropout, dropout):
 
         if l > 0:
             out = Add()([out, prev])
-
+    """
     return Model([notes_in, beat_in, style_in], out, name='time_axis')
 
 def di_causal_conv(dropout):
@@ -197,8 +232,6 @@ def note_axis(time_steps, input_dropout, dropout):
     shift_chosen = Dropout(input_dropout)(shift_chosen)
     shift_chosen = Lambda(lambda x: tf.expand_dims(x, -1))(shift_chosen)
 
-    note_axis_outs = []
-
     # Reshape to 4D tensor [batch, time, notes, 1]
     shift_chosen = Reshape((time_steps, NUM_NOTES, 1))(shift_chosen)
     # Add the chosen notes to the features [batch, time, notes, features + 1]
@@ -227,36 +260,9 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     # Target input for conditioning
     chosen_in = Input((time_steps, NUM_NOTES), name='chosen_in')
 
-    """
-    Time axis
-    Responsible for learning temporal patterns.
-    """
-    # Style linear projection
-    style_distributed = TimeDistributed(Dense(STYLE_UNITS))(style_in)
-
-    # Pad note by one octave
-    out = Dropout(input_dropout)(notes_in)
-    padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE]]), name='padded_note_in')(out)
-    pitch_class_bins = Lambda(lambda x: tf.reduce_sum([x[:, :, i*OCTAVE:i*OCTAVE+OCTAVE] for i in range(NUM_OCTAVES)], axis=0), name='pitch_class_bins')(out)
-
-    time_axis_rnn = [LSTM(units, return_sequences=True, activation='tanh', name='time_axis_rnn_' + str(i)) for i, units in enumerate(TIME_AXIS_UNITS)]
-    time_axis_outs = []
-
-    for n in range(OCTAVE, NUM_NOTES + OCTAVE):
-        # Input one octave of notes
-        octave_in = Lambda(lambda x: x[:, :, n - OCTAVE:n + OCTAVE + 1], name='note_' + str(n))(padded_notes)
-        # Pitch position of note
-        pitch_pos_in = Lambda(lambda x: tf.fill([tf.shape(x)[0], time_steps, 1], n / (NUM_NOTES - 1)))(notes_in)
-        # Pitch class of current note
-        pitch_class_in = Lambda(lambda x: tf.reshape(tf.tile(tf.constant(one_hot(n % OCTAVE, OCTAVE), dtype=tf.float32), [tf.shape(x)[0] * time_steps]), [tf.shape(x)[0], time_steps, OCTAVE]))(notes_in)
-
-        time_axis_out = Concatenate()([octave_in, pitch_pos_in, pitch_class_in, beat_in, style_distributed])
-        time_axis_out = Dropout(dropout)(time_axis_rnn[0](time_axis_out))
-        time_axis_outs.append(time_axis_out)
-
-    # Stack each note slice into 4D vec of note features
-    # [batch, time, notes, features]
-    out = Lambda(lambda x: tf.stack(x, axis=2))(time_axis_outs)
+    # Apply time-axis model
+    time_axis_model = time_axis(time_steps, input_dropout, dropout)
+    out = time_axis_model([notes_in, beat_in, style_in])
 
     # Apply note-axis model
     note_axis_model = note_axis(time_steps, input_dropout, dropout)
