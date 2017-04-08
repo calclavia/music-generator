@@ -227,17 +227,41 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     # Target input for conditioning
     chosen_in = Input((time_steps, NUM_NOTES), name='chosen_in')
 
-    # Apply time-axis model
-    time_axis_model = time_axis(time_steps, input_dropout, dropout)
-    out = time_axis_model([notes_in, beat_in, style_in])
-
     # Apply note-axis model
     # note_axis_model = note_axis(time_steps, input_dropout, dropout)
     # out = note_axis_model([out, chosen_in, style_in])
 
+    """
+    Time axis
+    Responsible for learning temporal patterns.
+    """
     # Style linear projection
     style_distributed = TimeDistributed(Dense(STYLE_UNITS))(style_in)
 
+    # Pad note by one octave
+    out = Dropout(input_dropout)(notes_in)
+    padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE]]), name='padded_note_in')(out)
+    pitch_class_bins = Lambda(lambda x: tf.reduce_sum([x[:, :, i*OCTAVE:i*OCTAVE+OCTAVE] for i in range(NUM_OCTAVES)], axis=0), name='pitch_class_bins')(out)
+
+    time_axis_rnn = [LSTM(units, return_sequences=True, activation='tanh', name='time_axis_rnn_' + str(i)) for i, units in enumerate(TIME_AXIS_UNITS)]
+    time_axis_outs = []
+
+    for n in range(OCTAVE, NUM_NOTES + OCTAVE):
+        # Input one octave of notes
+        octave_in = Lambda(lambda x: x[:, :, n - OCTAVE:n + OCTAVE + 1], name='note_' + str(n))(padded_notes)
+        # Pitch position of note
+        pitch_pos_in = Lambda(lambda x: tf.fill([tf.shape(x)[0], time_steps, 1], n / (NUM_NOTES - 1)))(notes_in)
+        # Pitch class of current note
+        pitch_class_in = Lambda(lambda x: tf.reshape(tf.tile(tf.constant(one_hot(n % OCTAVE, OCTAVE), dtype=tf.float32), [tf.shape(x)[0] * time_steps]), [tf.shape(x)[0], time_steps, OCTAVE]))(notes_in)
+
+        time_axis_out = Concatenate()([octave_in, pitch_pos_in, pitch_class_in, beat_in, style_distributed])
+        time_axis_out = Dropout(dropout)(time_axis_rnn[0](time_axis_out))
+        time_axis_outs.append(time_axis_out)
+
+    # Stack each note slice into 4D vec of note features
+    # [batch, time, notes, features]
+    out = Lambda(lambda x: tf.stack(x, axis=2))(time_axis_outs)
+    
     # Shift target one note to the left. []
     shift_chosen = Lambda(lambda x: tf.pad(x[:, :, :-1], [[0, 0], [0, 0], [1, 0]]))(chosen_in)
     shift_chosen = Dropout(input_dropout)(shift_chosen)
