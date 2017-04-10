@@ -113,7 +113,7 @@ def time_axis(time_steps, input_dropout, dropout):
         # Apply layers with increasing dilation
         for l, units in enumerate(TIME_AXIS_UNITS):
             prev = out
-            out = conv_rnn(units, 3, 2 ** l, dropout)(out, temporal_context)
+            out = conv_rnn(units, 2 * 6 + 1, 2 ** l, dropout)(out, temporal_context)
             # out = conv_rnn(units, 2 * OCTAVE, 1, dropout)(out, temporal_context)
 
             if l > 0:
