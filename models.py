@@ -50,7 +50,7 @@ def conv_rnn(units, kernel, dilation, dropout):
         # TODO: Tanh generally seems better for RNN models
         for conv in convs:
             out = TimeDistributed(conv)(out)
-            out = Activation('relu')(out)
+            # out = Activation('relu')(out)
             out = Dropout(dropout)(out)
 
         time_axis_outs = []
