@@ -39,15 +39,20 @@ def conv_rnn(units, kernel, dilation, dropout):
     A module that consist of a convolution followed by an parallel
     weight-shared LSTM layer.
     """
+    # Convolution before applying LSTM.
+    convs = [Conv1D(units, kernel, dilation_rate=(2 ** l) * dilation, padding='same') for l in range(3)]
+
+    # Shared LSTM layer
+    time_axis_rnn = LSTM(units, return_sequences=True)
+
     def f(out, temporal_context=None):
         # TODO: Need to do a full experiment to compare activations.
         # TODO: Tanh generally seems better for RNN models
-        out = TimeDistributed(Conv1D(units, kernel, dilation_rate=dilation, padding='same'))(out)
-        # out = Activation('relu')(out)
-        out = Dropout(dropout)(out)
+        for conv in convs:
+            out = TimeDistributed(conv)(out)
+            # out = Activation('relu')(out)
+            out = Dropout(dropout)(out)
 
-        # Shared LSTM layer
-        time_axis_rnn = LSTM(units, return_sequences=True)
         time_axis_outs = []
 
         # Shared recurrent units for each note
@@ -101,9 +106,7 @@ def time_axis(time_steps, input_dropout, dropout):
         # Apply layers with increasing dilation
         for l, units in enumerate(TIME_AXIS_UNITS):
             prev = out
-            # out = conv_rnn(units, 3, 2 ** l, dropout)(out, temporal_context)
-            # out = conv_rnn(units, 2 * 6 + 1, 2 ** l, dropout)(out, temporal_context)
-            out = conv_rnn(units, 2 * OCTAVE, 1, dropout)(out, temporal_context)
+            out = conv_rnn(units, 3, 8 ** l, dropout)(out, temporal_context)
 
             if l > 0:
                 out = Add()([out, prev])
