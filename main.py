@@ -35,8 +35,9 @@ def build_or_load(allow_load=True):
         try:
             models[0].load_weights('out/model.h5', by_name=True)
             print('Loaded model from file.')
-        except:
+        except Exception as e:
             print('Unable to load model from file.')
+            print(e)
     return models
 
 def train(models, gen):
