@@ -196,7 +196,6 @@ def note_axis(time_steps, input_dropout, dropout):
 
         # Style for each note repeated [batch, time, notes, STYLE_UNITS]
         style_repeated = TimeDistributed(RepeatVector(NUM_NOTES))(style)
-        style_repeated = Dropout()(style_repeated)
 
         # Apply a dilated convolution model
         out = di_causal_conv(dropout)(note_input, style_repeated)
@@ -216,6 +215,7 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
 
     # Style linear projection
     style = TimeDistributed(Dense(STYLE_UNITS))(style_in)
+    style = Dropout(dropout)(style)
 
     # Apply time-axis model
     out = time_axis(time_steps, input_dropout, dropout)(notes_in, beat_in, style)
