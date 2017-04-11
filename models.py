@@ -41,6 +41,7 @@ def conv_rnn(units, kernel, dilation, dropout):
     """
     def f(out, temporal_context=None):
         # TODO: Would a gated activation perform better?
+        """
         # Gated activation unit.
         tanh_out = TimeDistributed(Conv1D(units, kernel, dilation_rate=dilation, padding='same'))(out)
         # tanh_out = Add()([tanh_out, style_context])
@@ -53,12 +54,13 @@ def conv_rnn(units, kernel, dilation, dropout):
         # z = tanh(Wx + Vh) x sigmoid(Wx + Vh) from Wavenet
         out = Multiply()([tanh_out, sig_out])
         out = Dropout(dropout)(out)
+        """
 
         # TODO: Need to do a full experiment to compare activations.
         # TODO: Tanh generally seems better for RNN models
-        # out = TimeDistributed(Conv1D(units, kernel, dilation_rate=dilation, padding='same'))(out)
-        # out = Activation('relu')(out)
-        # out = Dropout(dropout)(out)
+        out = TimeDistributed(Conv1D(units, kernel, dilation_rate=dilation, padding='same'))(out)
+        out = Activation('relu')(out)
+        out = Dropout(dropout)(out)
 
         # Shared LSTM layer
         time_axis_rnn = LSTM(units, return_sequences=True)
@@ -106,6 +108,7 @@ def time_axis(time_steps, input_dropout, dropout):
         out = Concatenate()([out, pitch_pos_in, pitch_class_in])
 
         temporal_context = Concatenate()([beat_in, style])
+        # TODO: Do we need pitch bins? Would that improve performance?
 
         # TODO: Experiment if conv can converge the same amount as without conv
         # TODO: Experiment if more layers are better
@@ -113,9 +116,9 @@ def time_axis(time_steps, input_dropout, dropout):
         # Apply layers with increasing dilation
         for l, units in enumerate(TIME_AXIS_UNITS):
             prev = out
-            out = conv_rnn(units, 3, 2 ** l, dropout)(out, temporal_context)
+            # out = conv_rnn(units, 3, 2 ** l, dropout)(out, temporal_context)
             # out = conv_rnn(units, 2 * 6 + 1, 2 ** l, dropout)(out, temporal_context)
-            # out = conv_rnn(units, 2 * OCTAVE, 1, dropout)(out, temporal_context)
+            out = conv_rnn(units, 2 * OCTAVE, 1, dropout)(out, temporal_context)
 
             if l > 0:
                 out = Add()([out, prev])
@@ -193,6 +196,7 @@ def note_axis(time_steps, input_dropout, dropout):
 
         # Style for each note repeated [batch, time, notes, STYLE_UNITS]
         style_repeated = TimeDistributed(RepeatVector(NUM_NOTES))(style)
+        style_repeated = Dropout()(style_repeated)
 
         # Apply a dilated convolution model
         out = di_causal_conv(dropout)(note_input, style_repeated)
