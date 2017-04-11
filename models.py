@@ -59,7 +59,7 @@ def conv_rnn(units, kernel, dilation, dropout):
         # TODO: Need to do a full experiment to compare activations.
         # TODO: Tanh generally seems better for RNN models
         out = TimeDistributed(Conv1D(units, kernel, dilation_rate=dilation, padding='same'))(out)
-        out = Activation('relu')(out)
+        # out = Activation('relu')(out)
         out = Dropout(dropout)(out)
 
         # Shared LSTM layer
@@ -108,8 +108,8 @@ def time_axis(time_steps, input_dropout, dropout):
         out = Concatenate()([out, pitch_pos_in, pitch_class_in])
 
         temporal_context = Concatenate()([beat_in, style])
-        # TODO: Do we need pitch bins? Would that improve performance?
 
+        # TODO: Do we need pitch bins? Would that improve performance?
         # TODO: Experiment if conv can converge the same amount as without conv
         # TODO: Experiment if more layers are better
         # TODO: Consider skip connections?
@@ -117,8 +117,8 @@ def time_axis(time_steps, input_dropout, dropout):
         for l, units in enumerate(TIME_AXIS_UNITS):
             prev = out
             # out = conv_rnn(units, 3, 2 ** l, dropout)(out, temporal_context)
-            # out = conv_rnn(units, 2 * 6 + 1, 2 ** l, dropout)(out, temporal_context)
-            out = conv_rnn(units, 2 * OCTAVE, 1, dropout)(out, temporal_context)
+            out = conv_rnn(units, 2 * 6 + 1, 2 ** l, dropout)(out, temporal_context)
+            # out = conv_rnn(units, 2 * OCTAVE, 1, dropout)(out, temporal_context)
 
             if l > 0:
                 out = Add()([out, prev])
