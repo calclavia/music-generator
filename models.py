@@ -40,7 +40,7 @@ def conv_rnn(units, kernel, dilation, dropout):
     weight-shared LSTM layer.
     """
     # Convolution before applying LSTM.
-    convs = [Conv1D(units, kernel, dilation_rate=(2 ** l) * dilation, padding='same') for l in range(3)]
+    convs = [Conv1D(units, kernel, dilation_rate=dilation, padding='same')]
 
     # Shared LSTM layer
     time_axis_rnn = LSTM(units, return_sequences=True)
@@ -106,7 +106,7 @@ def time_axis(time_steps, input_dropout, dropout):
         # Apply layers with increasing dilation
         for l, units in enumerate(TIME_AXIS_UNITS):
             prev = out
-            out = conv_rnn(units, 3, 8 ** l, dropout)(out, temporal_context)
+            out = conv_rnn(units, OCTAVE, 2 ** l, dropout)(out, temporal_context)
 
             if l > 0:
                 out = Add()([out, prev])
