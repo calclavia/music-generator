@@ -40,22 +40,6 @@ def conv_rnn(units, kernel, dilation, dropout):
     weight-shared LSTM layer.
     """
     def f(out, temporal_context=None):
-        # TODO: Would a gated activation perform better?
-        """
-        # Gated activation unit.
-        tanh_out = TimeDistributed(Conv1D(units, kernel, dilation_rate=dilation, padding='same'))(out)
-        # tanh_out = Add()([tanh_out, style_context])
-        tanh_out = Activation('tanh')(tanh_out)
-
-        sig_out = TimeDistributed(Conv1D(units, kernel, dilation_rate=dilation, padding='same'))(out)
-        # sig_out = Add()([sig_out, style_context])
-        sig_out = Activation('sigmoid')(sig_out)
-
-        # z = tanh(Wx + Vh) x sigmoid(Wx + Vh) from Wavenet
-        out = Multiply()([tanh_out, sig_out])
-        out = Dropout(dropout)(out)
-        """
-
         # TODO: Need to do a full experiment to compare activations.
         # TODO: Tanh generally seems better for RNN models
         out = TimeDistributed(Conv1D(units, kernel, dilation_rate=dilation, padding='same'))(out)
@@ -112,7 +96,8 @@ def time_axis(time_steps, input_dropout, dropout):
         # TODO: Do we need pitch bins? Would that improve performance?
         # TODO: Experiment if conv can converge the same amount as without conv
         # TODO: Experiment if more layers are better
-        # TODO: Consider skip connections?
+
+        # TODO: Consider skip connections? Does residual help?
         # Apply layers with increasing dilation
         for l, units in enumerate(TIME_AXIS_UNITS):
             prev = out
@@ -129,6 +114,13 @@ def di_causal_conv(dropout):
     """
     Builds a casual dilation convolution model for each time step
     """
+    # Define layers
+    conv_tanhs = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal') for l, units in enumerate(NOTE_AXIS_UNITS)]
+    conv_sigs = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal') for l, units in enumerate(NOTE_AXIS_UNITS)]
+    conv_skips = [Conv1D(units, 1, padding='same') for units in NOTE_AXIS_UNITS]
+    conv_finals = [Conv1D(units, 1, padding='same') for units in FINAL_UNITS]
+    dense_pred = Dense(1)
+
     def f(note_features, context):
         # Skip connections
         skips = []
@@ -140,11 +132,11 @@ def di_causal_conv(dropout):
             prev_out = out
 
             # Gated activation unit.
-            tanh_out = TimeDistributed(Conv1D(units, 2, dilation_rate=2 ** l, padding='causal'))(out)
+            tanh_out = TimeDistributed(conv_tanhs[l])(out)
             tanh_out = Add()([tanh_out, context])
             tanh_out = Activation('tanh')(tanh_out)
 
-            sig_out = TimeDistributed(Conv1D(units, 2, dilation_rate=2 ** l, padding='causal'))(out)
+            sig_out = TimeDistributed(conv_sigs[l])(out)
             sig_out = Add()([sig_out, context])
             sig_out = Activation('sigmoid')(sig_out)
 
@@ -153,7 +145,7 @@ def di_causal_conv(dropout):
             out = Dropout(dropout)(out)
 
             # Skip connection
-            skip_out = TimeDistributed(Conv1D(units, 1, padding='same'))(out)
+            skip_out = TimeDistributed(conv_skips[l])(out)
             skips.append(skip_out)
 
             # Residual connection
@@ -167,22 +159,24 @@ def di_causal_conv(dropout):
         for l, units in enumerate(FINAL_UNITS):
             # TODO: Relu before or after?
             out = Activation('relu')(out)
-            out = TimeDistributed(Conv1D(units, 1, padding='same'))(out)
+            out = TimeDistributed(conv_finals[l])(out)
             out = Dropout(dropout)(out)
 
         # Apply prediction layer
-        out = TimeDistributed(Dense(1))(out)
+        out = TimeDistributed(dense_pred)(out)
         out = Activation('sigmoid')(out)
         # From remove the extra dimension
         out = Reshape((-1, NUM_NOTES))(out)
         return out
     return f
 
-def note_axis(time_steps, input_dropout, dropout):
+def note_axis(input_dropout, dropout):
     """
     Constructs a note axis model that learns how to create harmonies.
     Outputs probability of playing each note.
     """
+    dconv = di_causal_conv(dropout)
+
     def f(note_features, chosen_in, style):
         # Shift target one note to the left.
         shift_chosen = Lambda(lambda x: tf.pad(x[:, :, :-1], [[0, 0], [0, 0], [1, 0]]))(chosen_in)
@@ -190,20 +184,27 @@ def note_axis(time_steps, input_dropout, dropout):
         shift_chosen = Lambda(lambda x: tf.expand_dims(x, -1))(shift_chosen)
 
         # Reshape to 4D tensor [batch, time, notes, 1]
-        shift_chosen = Reshape((time_steps, NUM_NOTES, 1))(shift_chosen)
+        shift_chosen = Reshape((-1, NUM_NOTES, 1))(shift_chosen)
         # Add the chosen notes to the features [batch, time, notes, features + 1]
         note_input = Concatenate(axis=3)([note_features, shift_chosen])
 
         # Style for each note repeated [batch, time, notes, STYLE_UNITS]
         style_repeated = TimeDistributed(RepeatVector(NUM_NOTES))(style)
-
         # Apply a dilated convolution model
-        out = di_causal_conv(dropout)(note_input, style_repeated)
-
+        out = dconv(note_input, style_repeated)
         return out
     return f
 
-def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
+def style_distributed(dropout):
+    dense = Dense(STYLE_UNITS)
+    def f(style_in):
+        # Style linear projection
+        style = TimeDistributed(dense)(style_in)
+        style = Dropout(dropout)(style)
+        return style
+    return f
+
+def build_models(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     """
     Define inputs
     """
@@ -214,15 +215,28 @@ def build_model(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     chosen_in = Input((time_steps, NUM_NOTES), name='chosen_in')
 
     # Style linear projection
-    style = TimeDistributed(Dense(STYLE_UNITS))(style_in)
-    style = Dropout(dropout)(style)
+    l_style = style_distributed(dropout)
+    style = l_style(style_in)
 
     # Apply time-axis model
-    out = time_axis(time_steps, input_dropout, dropout)(notes_in, beat_in, style)
+    time_out = time_axis(time_steps, input_dropout, dropout)(notes_in, beat_in, style)
 
     # Apply note-axis model
-    out = note_axis(time_steps, input_dropout, dropout)(out, chosen_in, style)
+    naxis = note_axis(input_dropout, dropout)
+    note_out = naxis(time_out, chosen_in, style)
 
-    model = Model([notes_in, chosen_in, beat_in, style_in], out)
+    model = Model([notes_in, chosen_in, beat_in, style_in], note_out)
     model.compile(optimizer='adam', loss='binary_crossentropy')
-    return model
+
+    # Build generation models which share the same weights
+    time_model = Model([notes_in, beat_in, style_in], time_out)
+
+    note_features = Input((1, NUM_NOTES, TIME_AXIS_UNITS[-1]), name='note_features')
+    chosen_gen_in = Input((1, NUM_NOTES), name='chosen_gen_in')
+    style_gen_in = Input((1, NUM_STYLES), name='style_in')
+
+    style_gen = l_style(style_gen_in)
+    note_gen_out = naxis(note_features, chosen_gen_in, style_gen)
+
+    note_model = Model([note_features, chosen_gen_in, style_gen_in], note_gen_out)
+    return model, time_model, note_model

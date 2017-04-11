@@ -21,31 +21,31 @@ def main():
     parser.add_argument('--gen', default=0, type=int, help='Generate per how many epochs?')
     args = parser.parse_args()
 
-    model = build_or_load()
+    models = build_or_load()
 
     if args.train:
-        train(model, args.gen)
+        train(models, args.gen)
     else:
-        write_file('sample', generate(model))
+        write_file('sample', generate(models))
 
 def build_or_load(allow_load=True):
-    model = build_model()
-    model.summary()
+    models = build_models()
+    models[0].summary()
     if allow_load:
         try:
-            model.load_weights('out/model.h5', by_name=True)
+            models[0].load_weights('out/model.h5', by_name=True)
             print('Loaded model from file.')
         except:
             print('Unable to load model from file.')
-    return model
+    return models
 
-def train(model, gen):
+def train(models, gen):
     print('Training')
     train_data, train_labels = load_all(styles, TIME_STEPS)
 
     def epoch_cb(epoch, _):
         if epoch % gen == 0:
-            write_file('result_epoch_{}'.format(epoch), generate(model))
+            write_file('result_epoch_{}'.format(epoch), generate(models))
 
     cbs = [
         ModelCheckpoint('out/model.h5', monitor='loss', save_best_only=True),
@@ -57,7 +57,7 @@ def train(model, gen):
     if gen > 0:
         cbs += [LambdaCallback(on_epoch_end=epoch_cb)]
 
-    model.fit(train_data, train_labels, validation_split=0, epochs=1000, callbacks=cbs, batch_size=BATCH_SIZE)
+    models[0].fit(train_data, train_labels, validation_split=0, epochs=1000, callbacks=cbs, batch_size=BATCH_SIZE)
 
 if __name__ == '__main__':
     main()
