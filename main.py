@@ -49,15 +49,15 @@ def train(model, gen):
 
     cbs = [
         ModelCheckpoint('out/model.h5', monitor='loss', save_best_only=True),
-        ReduceLROnPlateau(patience=2),
-        EarlyStopping(patience=5),
+        ReduceLROnPlateau(patience=2, monitor='loss'),
+        EarlyStopping(patience=5, monitor='loss'),
         TensorBoard(log_dir='out/logs', histogram_freq=1)
     ]
 
     if gen > 0:
         cbs += [LambdaCallback(on_epoch_end=epoch_cb)]
 
-    model.fit(train_data, train_labels, validation_split=0.1, epochs=1000, callbacks=cbs, batch_size=BATCH_SIZE)
+    model.fit(train_data, train_labels, validation_split=0, epochs=1000, callbacks=cbs, batch_size=BATCH_SIZE)
 
 if __name__ == '__main__':
     main()
