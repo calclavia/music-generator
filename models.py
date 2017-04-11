@@ -28,10 +28,23 @@ def pitch_class_in_f(time_steps):
     Returns a constant containing pitch class of each note
     """
     def f(x):
+        """
         pitch_class_matrix = np.array([one_hot(n % OCTAVE, OCTAVE) for n in range(NUM_NOTES)])
         pitch_class_matrix = tf.constant(pitch_class_matrix, dtype='float32')
         pitch_class_matrix = tf.reshape(pitch_class_matrix, [1, 1, NUM_NOTES, OCTAVE])
         return tf.tile(pitch_class_matrix, [tf.shape(x)[0], time_steps, 1, 1])
+        """
+        note_ranges = (tf.range(NUM_NOTES, dtype='float32') % OCTAVE) / OCTAVE
+        repeated_ranges = tf.tile(note_ranges, [tf.shape(x)[0] * time_steps])
+        return tf.reshape(repeated_ranges, [tf.shape(x)[0], time_steps, NUM_NOTES, 1])
+    return f
+
+def pitch_bins_f(time_steps):
+    def f(x):
+        bins = tf.reduce_sum([x[:, :, i::OCTAVE] for i in range(OCTAVE)], axis=3)
+        bins = tf.tile(bins, [NUM_OCTAVES, 1, 1])
+        bins = tf.reshape(bins, [tf.shape(x)[0], time_steps, NUM_NOTES, 1])
+        return bins
     return f
 
 def conv_rnn(units, kernel, dilation, dropout):
@@ -86,6 +99,9 @@ def time_axis(time_steps, input_dropout, dropout):
         # TODO: Do we need to share layer with note_axis? Res should take care.
         pitch_pos_in = Lambda(pitch_pos_in_f(time_steps))(notes_in)
         pitch_class_in = Lambda(pitch_class_in_f(time_steps))(notes_in)
+        # Pitch bin count helps determine chords
+        # TODO: Do we need pitch bins? Would that improve performance? Redundant?
+        pitch_class_bins = Lambda(pitch_bins_f(time_steps))(notes_in)
 
         # Apply dropout to input
         out = Dropout(input_dropout)(notes_in)
@@ -93,16 +109,17 @@ def time_axis(time_steps, input_dropout, dropout):
         # Change input into 4D tensor
         out = Reshape((time_steps, NUM_NOTES, 1))(out)
 
-        # Add in spatial context
-        out = Concatenate()([out, pitch_pos_in, pitch_class_in])
+        # Add in spatial context as channels into the "note image"
+        out = Concatenate()([out, pitch_pos_in, pitch_class_in, pitch_class_bins])
 
         temporal_context = Concatenate()([beat_in, style])
 
-        # TODO: Do we need pitch bins? Would that improve performance?
         # TODO: Experiment if conv can converge the same amount as without conv
         # TODO: Experiment if more layers are better
 
         # TODO: Consider skip connections? Does residual help?
+
+        # TODO: May be don't conv for the first layer to retain more information.
         # Apply layers with increasing dilation
         for l, units in enumerate(TIME_AXIS_UNITS):
             prev = out
