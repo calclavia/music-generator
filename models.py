@@ -51,17 +51,32 @@ def conv_rnn(units, kernel, dilation, dropout):
     weight-shared LSTM layer.
     """
     # Convolution before applying LSTM.
-    convs = [Conv1D(units, kernel, dilation_rate=dilation, padding='same')]
+
+    # TODO: Refactor this. Hard coded....
+    # Covering full note receptive field
+    convs = [
+        Conv1D(64, kernel, dilation_rate=1, padding='same'),
+        Conv1D(64, kernel, dilation_rate=2, padding='same'),
+        Conv1D(128, kernel, dilation_rate=4, padding='same'),
+        Conv1D(128, kernel, dilation_rate=8, padding='same'),
+        Conv1D(256, kernel, dilation_rate=16, padding='same'),
+        Conv1D(256, kernel, dilation_rate=32, padding='same')
+    ]
 
     # Shared LSTM layer
     time_axis_rnns = [LSTM(units, return_sequences=True) for _ in range(2)]
 
-    def f(out, spatial_context=None, temporal_context=None):
+    def f(out, spatial_context, temporal_context):
         # TODO: Need to do a full experiment to compare activations.
-        for conv in convs:
+        for l, conv in enumerate(convs):
+            prev = out
+
             out = TimeDistributed(conv)(out)
-            # out = Activation('tanh')(out)
+            out = Activation('tanh')(out)
             out = Dropout(dropout)(out)
+
+            if l > 0:
+                out = Add()([out, prev])
 
         out = Concatenate()([out, spatial_context])
 
@@ -71,14 +86,16 @@ def conv_rnn(units, kernel, dilation, dropout):
         for n in range(NUM_NOTES):
             # Slice the current note
             time_axis_out = Lambda(lambda x: x[:, :, n, :])(out)
+            time_axis_out = Concatenate()([time_axis_out, temporal_context])
 
-            if temporal_context is not None:
-                time_axis_out = Concatenate()([time_axis_out, temporal_context])
-
-            for time_axis_rnn in time_axis_rnns:
+            for l, time_axis_rnn in enumerate(time_axis_rnns):
+                prev = time_axis_out
                 time_axis_out = time_axis_rnn(time_axis_out)
                 time_axis_out = Activation('tanh')(time_axis_out)
                 time_axis_out = Dropout(dropout)(time_axis_out)
+
+                if l > 0:
+                    time_axis_out = Add()([time_axis_out, prev])
 
             time_axis_outs.append(time_axis_out)
 
@@ -119,7 +136,7 @@ def time_axis(time_steps, input_dropout, dropout):
         spatial_context = Concatenate()([pitch_pos_in, pitch_class_in, pitch_class_bin_conv])
 
         # Add temporal_context
-        beat = beat_d(beat_in)
+        beat = beat_d(Dropout(input_dropout)(beat_in))
 
         temporal_context = Concatenate()([beat, style])
 
@@ -130,7 +147,7 @@ def time_axis(time_steps, input_dropout, dropout):
         # Apply layers with increasing dilation
         for l, units in enumerate(TIME_AXIS_UNITS):
             prev = out
-            out = conv_rnn(units, 2 * OCTAVE, 2 ** l, dropout)(out, spatial_context, temporal_context)
+            out = conv_rnn(units, 3, 2 ** l, dropout)(out, spatial_context, temporal_context)
 
             if l > 0:
                 out = Add()([out, prev])
@@ -243,7 +260,7 @@ def build_models(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
 
     # Style linear projection
     l_style = distributed(dropout)
-    style = l_style(style_in)
+    style = l_style(Dropout(input_dropout)(style_in))
 
     # Apply time-axis model
     time_out = time_axis(time_steps, input_dropout, dropout)(notes_in, beat_in, style)
