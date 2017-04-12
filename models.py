@@ -60,7 +60,7 @@ def conv_rnn(units, kernel, dilation, dropout):
         # TODO: Need to do a full experiment to compare activations.
         for conv in convs:
             out = TimeDistributed(conv)(out)
-            out = Activation('tanh')(out)
+            # out = Activation('tanh')(out)
             out = Dropout(dropout)(out)
 
         out = Concatenate()([out, spatial_context])
@@ -95,6 +95,9 @@ def time_axis(time_steps, input_dropout, dropout):
 
     The time axis learns temporal patterns.
     """
+    p_conv = Conv1D(32, 2 * OCTAVE, padding='same')
+    beat_d = distributed(dropout, units=32)
+
     def f(notes_in, beat_in, style):
         # TODO: Do we need to share layer with note_axis? Res should take care.
         pitch_pos_in = Lambda(pitch_pos_in_f(time_steps))(notes_in)
@@ -110,8 +113,15 @@ def time_axis(time_steps, input_dropout, dropout):
         out = Reshape((time_steps, NUM_NOTES, 1))(out)
 
         # Add in spatial context as channels into the "note image"
-        spatial_context = Concatenate()([pitch_pos_in, pitch_class_in, pitch_class_bins])
-        temporal_context = Concatenate()([beat_in, style])
+        pitch_class_bin_conv = TimeDistributed(p_conv)(pitch_class_bins)
+        pitch_class_bin_conv = Dropout(dropout)(pitch_class_bin_conv)
+
+        spatial_context = Concatenate()([pitch_pos_in, pitch_class_in, pitch_class_bin_conv])
+
+        # Add temporal_context
+        beat = beat_d(beat_in)
+
+        temporal_context = Concatenate()([beat, style])
 
         # TODO: Experiment if conv can converge the same amount as without conv
         # TODO: Experiment if more layers are better
@@ -212,8 +222,8 @@ def note_axis(input_dropout, dropout):
         return out
     return f
 
-def style_distributed(dropout):
-    dense = Dense(STYLE_UNITS)
+def distributed(dropout, units=STYLE_UNITS):
+    dense = Dense(units)
     def f(style_in):
         # Style linear projection
         style = TimeDistributed(dense)(style_in)
@@ -232,7 +242,7 @@ def build_models(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     chosen_in = Input((time_steps, NUM_NOTES), name='chosen_in')
 
     # Style linear projection
-    l_style = style_distributed(dropout)
+    l_style = distributed(dropout)
     style = l_style(style_in)
 
     # Apply time-axis model
