@@ -56,12 +56,14 @@ def conv_rnn(units, kernel, dilation, dropout):
     # Shared LSTM layer
     time_axis_rnns = [LSTM(units, return_sequences=True) for _ in range(2)]
 
-    def f(out, temporal_context=None):
+    def f(out, spatial_context=None, temporal_context=None):
         # TODO: Need to do a full experiment to compare activations.
         for conv in convs:
             out = TimeDistributed(conv)(out)
             out = Activation('tanh')(out)
             out = Dropout(dropout)(out)
+
+        out = Concatenate()([out, spatial_context])
 
         time_axis_outs = []
 
@@ -108,20 +110,17 @@ def time_axis(time_steps, input_dropout, dropout):
         out = Reshape((time_steps, NUM_NOTES, 1))(out)
 
         # Add in spatial context as channels into the "note image"
-        out = Concatenate()([out, pitch_pos_in, pitch_class_in, pitch_class_bins])
-
+        spatial_context = Concatenate()([pitch_pos_in, pitch_class_in, pitch_class_bins])
         temporal_context = Concatenate()([beat_in, style])
 
         # TODO: Experiment if conv can converge the same amount as without conv
         # TODO: Experiment if more layers are better
-
         # TODO: Consider skip connections? Does residual help?
-
         # TODO: May be don't conv for the first layer to retain more information.
         # Apply layers with increasing dilation
         for l, units in enumerate(TIME_AXIS_UNITS):
             prev = out
-            out = conv_rnn(units, 2 * OCTAVE, 2 ** l, dropout)(out, temporal_context)
+            out = conv_rnn(units, 2 * OCTAVE, 2 ** l, dropout)(out, spatial_context, temporal_context)
 
             if l > 0:
                 out = Add()([out, prev])
