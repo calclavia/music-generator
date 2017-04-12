@@ -56,14 +56,13 @@ def conv_rnn(units, kernel, dilation, dropout):
     convs = [Conv1D(units, kernel, dilation_rate=dilation, padding='same')]
 
     # Shared LSTM layer
-    time_axis_rnn = LSTM(units, return_sequences=True)
+    time_axis_rnns = [LSTM(units, return_sequences=True) for _ in range(2)]
 
     def f(out, temporal_context=None):
         # TODO: Need to do a full experiment to compare activations.
-        # TODO: Tanh generally seems better for RNN models
         for conv in convs:
             out = TimeDistributed(conv)(out)
-            # out = Activation('relu')(out)
+            out = Activation('tanh')(out)
             out = Dropout(dropout)(out)
 
         time_axis_outs = []
@@ -76,9 +75,10 @@ def conv_rnn(units, kernel, dilation, dropout):
             if temporal_context is not None:
                 time_axis_out = Concatenate()([time_axis_out, temporal_context])
 
-            time_axis_out = time_axis_rnn(time_axis_out)
-            time_axis_out = Activation('tanh')(time_axis_out)
-            time_axis_out = Dropout(dropout)(time_axis_out)
+            for time_axis_rnn in time_axis_rnns:
+                time_axis_out = time_axis_rnn(time_axis_out)
+                time_axis_out = Activation('tanh')(time_axis_out)
+                time_axis_out = Dropout(dropout)(time_axis_out)
 
             time_axis_outs.append(time_axis_out)
 
@@ -123,7 +123,7 @@ def time_axis(time_steps, input_dropout, dropout):
         # Apply layers with increasing dilation
         for l, units in enumerate(TIME_AXIS_UNITS):
             prev = out
-            out = conv_rnn(units, OCTAVE, 2 ** l, dropout)(out, temporal_context)
+            out = conv_rnn(units, 2 * OCTAVE, 2 ** l, dropout)(out, temporal_context)
 
             if l > 0:
                 out = Add()([out, prev])
