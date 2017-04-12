@@ -28,15 +28,13 @@ def pitch_class_in_f(time_steps):
     Returns a constant containing pitch class of each note
     """
     def f(x):
-        """
         pitch_class_matrix = np.array([one_hot(n % OCTAVE, OCTAVE) for n in range(NUM_NOTES)])
         pitch_class_matrix = tf.constant(pitch_class_matrix, dtype='float32')
         pitch_class_matrix = tf.reshape(pitch_class_matrix, [1, 1, NUM_NOTES, OCTAVE])
         return tf.tile(pitch_class_matrix, [tf.shape(x)[0], time_steps, 1, 1])
-        """
-        note_ranges = (tf.range(NUM_NOTES, dtype='float32') % OCTAVE) / OCTAVE
-        repeated_ranges = tf.tile(note_ranges, [tf.shape(x)[0] * time_steps])
-        return tf.reshape(repeated_ranges, [tf.shape(x)[0], time_steps, NUM_NOTES, 1])
+        # note_ranges = (tf.range(NUM_NOTES, dtype='float32') % OCTAVE) / OCTAVE
+        # repeated_ranges = tf.tile(note_ranges, [tf.shape(x)[0] * time_steps])
+        # return tf.reshape(repeated_ranges, [tf.shape(x)[0], time_steps, NUM_NOTES, 1])
     return f
 
 def pitch_bins_f(time_steps):
