@@ -1,5 +1,7 @@
 import tensorflow as tf
-from keras.layers import Input, Flatten, Activation, LSTM, Dense, Dropout, Lambda, Permute, Reshape, Conv1D, MaxPooling1D, GlobalMaxPooling1D, TimeDistributed, RepeatVector
+from keras.layers import Input, Flatten, Activation, LSTM, Dense, Dropout, \
+                         Lambda, Permute, Reshape, Conv1D, MaxPooling1D, \
+                         BatchNormalization, TimeDistributed, RepeatVector
 from keras.models import Model, load_model
 from keras.callbacks import ModelCheckpoint, LambdaCallback, ReduceLROnPlateau, EarlyStopping, TensorBoard
 from keras.layers.merge import Concatenate, Add, Multiply
@@ -72,11 +74,13 @@ def conv_rnn(units, kernel, dilation, dropout):
             prev = out
 
             out = TimeDistributed(conv)(out)
-            out = Activation('tanh')(out)
+            out = BatchNormalization()(out)
+            out = Activation('relu')(out)
             out = Dropout(dropout)(out)
-
+            """
             if l > 0:
                 out = Add()([out, prev])
+            """
 
         out = Concatenate()([out, spatial_context])
 
@@ -91,6 +95,7 @@ def conv_rnn(units, kernel, dilation, dropout):
             for l, time_axis_rnn in enumerate(time_axis_rnns):
                 prev = time_axis_out
                 time_axis_out = time_axis_rnn(time_axis_out)
+                time_axis_out = BatchNormalization()(time_axis_out)
                 time_axis_out = Activation('tanh')(time_axis_out)
                 time_axis_out = Dropout(dropout)(time_axis_out)
 
@@ -178,10 +183,12 @@ def di_causal_conv(dropout):
             # Gated activation unit.
             tanh_out = TimeDistributed(conv_tanhs[l])(out)
             tanh_out = Add()([tanh_out, context])
+            tanh_out = BatchNormalization()(tanh_out)
             tanh_out = Activation('tanh')(tanh_out)
 
             sig_out = TimeDistributed(conv_sigs[l])(out)
             sig_out = Add()([sig_out, context])
+            sig_out = BatchNormalization()(sig_out)
             sig_out = Activation('sigmoid')(sig_out)
 
             # z = tanh(Wx + Vh) x sigmoid(Wx + Vh) from Wavenet
@@ -202,12 +209,14 @@ def di_causal_conv(dropout):
 
         for l, units in enumerate(FINAL_UNITS):
             # TODO: Relu before or after?
+            out = BatchNormalization()(out)
             out = Activation('relu')(out)
             out = TimeDistributed(conv_finals[l])(out)
             out = Dropout(dropout)(out)
 
         # Apply prediction layer
         out = TimeDistributed(dense_pred)(out)
+        out = BatchNormalization()(out)
         out = Activation('sigmoid')(out)
         # From remove the extra dimension
         out = Reshape((-1, NUM_NOTES))(out)
