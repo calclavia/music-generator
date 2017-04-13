@@ -57,30 +57,34 @@ def conv_rnn(units, kernel, dilation, dropout):
     # TODO: Refactor this. Hard coded....
     # Covering full note receptive field
     convs = [
-        Conv1D(64, kernel, dilation_rate=1, padding='same'),
-        Conv1D(64, kernel, dilation_rate=2, padding='same'),
+        Conv1D(128, kernel, dilation_rate=1, padding='same'),
+        Conv1D(128, kernel, dilation_rate=2, padding='same'),
         Conv1D(128, kernel, dilation_rate=4, padding='same'),
         Conv1D(128, kernel, dilation_rate=8, padding='same'),
-        Conv1D(256, kernel, dilation_rate=16, padding='same'),
-        Conv1D(256, kernel, dilation_rate=32, padding='same')
+        Conv1D(128, kernel, dilation_rate=16, padding='same'),
+        Conv1D(128, kernel, dilation_rate=32, padding='same')
     ]
 
     # Shared LSTM layer
-    time_axis_rnns = [LSTM(units, return_sequences=True) for _ in range(2)]
+    time_axis_rnns = [LSTM(units, return_sequences=True, activation='relu') for _ in range(2)]
 
     def f(out, spatial_context, temporal_context):
-        # TODO: Need to do a full experiment to compare activations.
         for l, conv in enumerate(convs):
             prev = out
 
+            if l > 0:
+                out = BatchNormalization()(out)
+                out = Activation('relu')(out)
+                out = Dropout(dropout)(out)
+
             out = TimeDistributed(conv)(out)
-            out = BatchNormalization()(out)
-            out = Activation('relu')(out)
-            out = Dropout(dropout)(out)
-            """
+
             if l > 0:
                 out = Add()([out, prev])
-            """
+
+        # Final activation
+        out = BatchNormalization()(out)
+        out = Activation('relu')(out)
 
         out = Concatenate()([out, spatial_context])
 
@@ -95,8 +99,6 @@ def conv_rnn(units, kernel, dilation, dropout):
             for l, time_axis_rnn in enumerate(time_axis_rnns):
                 prev = time_axis_out
                 time_axis_out = time_axis_rnn(time_axis_out)
-                time_axis_out = BatchNormalization()(time_axis_out)
-                time_axis_out = Activation('tanh')(time_axis_out)
                 time_axis_out = Dropout(dropout)(time_axis_out)
 
                 if l > 0:
@@ -183,12 +185,12 @@ def di_causal_conv(dropout):
             # Gated activation unit.
             tanh_out = TimeDistributed(conv_tanhs[l])(out)
             tanh_out = Add()([tanh_out, context])
-            tanh_out = BatchNormalization()(tanh_out)
+            # tanh_out = BatchNormalization()(tanh_out)
             tanh_out = Activation('tanh')(tanh_out)
 
             sig_out = TimeDistributed(conv_sigs[l])(out)
             sig_out = Add()([sig_out, context])
-            sig_out = BatchNormalization()(sig_out)
+            # sig_out = BatchNormalization()(sig_out)
             sig_out = Activation('sigmoid')(sig_out)
 
             # z = tanh(Wx + Vh) x sigmoid(Wx + Vh) from Wavenet
@@ -209,14 +211,14 @@ def di_causal_conv(dropout):
 
         for l, units in enumerate(FINAL_UNITS):
             # TODO: Relu before or after?
-            out = BatchNormalization()(out)
+            # out = BatchNormalization()(out)
             out = Activation('relu')(out)
             out = TimeDistributed(conv_finals[l])(out)
             out = Dropout(dropout)(out)
 
         # Apply prediction layer
         out = TimeDistributed(dense_pred)(out)
-        out = BatchNormalization()(out)
+        # out = BatchNormalization()(out)
         out = Activation('sigmoid')(out)
         # From remove the extra dimension
         out = Reshape((-1, NUM_NOTES))(out)
