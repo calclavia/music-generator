@@ -53,22 +53,13 @@ def conv_rnn(units, kernel, dilation, dropout):
     weight-shared LSTM layer.
     """
     # Convolution before applying LSTM.
-
-    # TODO: Refactor this. Hard coded....
-    # Covering full note receptive field
-    convs = [
-        Conv1D(128, kernel, dilation_rate=1, padding='same'),
-        Conv1D(128, kernel, dilation_rate=2, padding='same'),
-        Conv1D(128, kernel, dilation_rate=4, padding='same'),
-        Conv1D(128, kernel, dilation_rate=8, padding='same'),
-        Conv1D(128, kernel, dilation_rate=16, padding='same'),
-        Conv1D(128, kernel, dilation_rate=32, padding='same')
-    ]
+    convs = [Conv1D(units, kernel, dilation_rate=dilation, padding='same')]
 
     # Shared LSTM layer
-    time_axis_rnns = [LSTM(units, return_sequences=True, activation='relu') for _ in range(2)]
+    time_axis_rnns = [LSTM(units, return_sequences=True, activation='tanh')]
 
     def f(out, spatial_context, temporal_context):
+        """
         for l, conv in enumerate(convs):
             prev = out
 
@@ -85,6 +76,8 @@ def conv_rnn(units, kernel, dilation, dropout):
         # Final activation
         out = BatchNormalization()(out)
         out = Activation('relu')(out)
+        out = Dropout(dropout)(out)
+        """
 
         out = Concatenate()([out, spatial_context])
 
@@ -148,13 +141,23 @@ def time_axis(time_steps, input_dropout, dropout):
         temporal_context = Concatenate()([beat, style])
 
         # TODO: Experiment if conv can converge the same amount as without conv
+        # Cover adjacent notes
+        padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE], [0, 0]]))(out)
+        adjacents = []
+
+        for n in range(NUM_NOTES):
+            adj = Lambda(lambda x: x[:, :, n:n+2*OCTAVE, 0])(padded_notes)
+            adjacents.append(adj)
+        out = Lambda(lambda x: tf.stack(x, axis=2))(adjacents)
+
         # TODO: Experiment if more layers are better
         # TODO: Consider skip connections? Does residual help?
         # TODO: May be don't conv for the first layer to retain more information.
+        # TODO: Experiment if batch norm helps
         # Apply layers with increasing dilation
         for l, units in enumerate(TIME_AXIS_UNITS):
             prev = out
-            out = conv_rnn(units, 3, 2 ** l, dropout)(out, spatial_context, temporal_context)
+            out = conv_rnn(units, OCTAVE, 1, dropout)(out, spatial_context, temporal_context)
 
             if l > 0:
                 out = Add()([out, prev])
