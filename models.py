@@ -170,8 +170,8 @@ def di_causal_conv(dropout):
         # Create large enough dilation to cover all notes
         for l, units in enumerate(NOTE_AXIS_UNITS):
             prev_out = out
-
-            out = gated_convs[l](out, context)
+            # TODO: Renable style
+            out = gated_convs[l](out)#, context)
             out = Dropout(dropout)(out)
 
             # Skip connection
@@ -180,7 +180,6 @@ def di_causal_conv(dropout):
             skips.append(skip_out)
 
             # Residual connection
-            # TODO: Padding can be used for the first layer residual connection
             if l > 0:
                 out = Add()([out, prev_out])
 

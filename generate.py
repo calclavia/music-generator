@@ -86,7 +86,7 @@ def process_inputs(ins):
     ins = [np.array(i) for i in ins]
     return ins
 
-def generate(models, num_bars=32, styles=None):
+def generate(models, num_bars=16, styles=None):
     if styles is None:
         styles = all_styles()
 
