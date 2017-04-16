@@ -44,6 +44,19 @@ def pitch_bins_f(time_steps):
         return bins
     return f
 
+def reach_octave():
+    def f(out):
+        padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE], [0, 0]]))(out)
+        adjacents = []
+
+        for n in range(NUM_NOTES):
+            adj = Lambda(lambda x: x[:, :, n:n+2*OCTAVE, 0])(padded_notes)
+            adjacents.append(adj)
+
+        out = Lambda(lambda x: tf.stack(x, axis=2))(adjacents)
+        return out
+    return f
+
 def note_lstm(units, dropout):
     """
     A module that consist of an LSTM applied to each note.
@@ -69,8 +82,8 @@ def time_axis(time_steps, dropout):
 
     The time axis learns temporal patterns.
     """
-    p_conv = gated_conv(PITCH_CLASS_UNITS, 2 * OCTAVE, 1, 'same')
-    n_conv = gated_conv(NOTE_CONV_UNITS, 2 * OCTAVE, 1, 'same')
+    # p_conv = gated_conv(PITCH_CLASS_UNITS, 2 * OCTAVE, 1, 'same')
+    # n_conv = gated_conv(NOTE_CONV_UNITS, 2 * OCTAVE, 1, 'same')
     beat_d = distributed(dropout, units=BEAT_UNITS)
 
     def f(notes_in, beat_in, style):
@@ -87,11 +100,14 @@ def time_axis(time_steps, dropout):
         out = Reshape((time_steps, NUM_NOTES, 1))(out)
 
         # Apply convolution to inputs
-        out = n_conv(out)
-        out = Dropout(dropout)(out)
+        # out = n_conv(out)
+        # out = Dropout(dropout)(out)
 
-        pitch_class_bin_conv = p_conv(pitch_class_bins)
-        pitch_class_bin_conv = Dropout(dropout)(pitch_class_bin_conv)
+        # pitch_class_bin_conv = p_conv(pitch_class_bins)
+        # pitch_class_bin_conv = Dropout(dropout)(pitch_class_bin_conv)
+
+        out = reach_octave()(out)
+        pitch_class_bin_conv = reach_octave()(pitch_class_bins)
 
         spatial_context = Concatenate()([pitch_pos_in, pitch_class_in, pitch_class_bin_conv])
 

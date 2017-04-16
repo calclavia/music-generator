@@ -2,9 +2,9 @@ from music import NOTES_PER_BAR, MAX_NOTE, MIN_NOTE
 import os
 
 # Define the musical styles
-styles = ['data/baroque', 'data/classical', 'data/romantic']
+# styles = ['data/baroque', 'data/classical', 'data/romantic']
 # styles = ['data/all_classical']
-# styles = ['data/baroque']
+styles = ['data/baroque']
 NUM_STYLES = len(styles)
 
 NUM_NOTES = MAX_NOTE - MIN_NOTE
