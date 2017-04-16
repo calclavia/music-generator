@@ -238,6 +238,7 @@ def build_models(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     chosen = Dropout(input_dropout)(chosen_in)
 
     # Style linear projection
+    # TODO: Style's effect isn't very strong
     l_style = distributed(dropout)
     style = l_style(style)
 

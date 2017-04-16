@@ -50,6 +50,7 @@ def train(models, gen, validate):
     cbs = [
         ModelCheckpoint('out/model.h5', monitor=monitor, save_best_only=True, save_weights_only=True),
         EarlyStopping(patience=5, monitor=monitor),
+        ReduceLROnPlateau(patience=3, monitor=monitor),
         TensorBoard(log_dir='out/logs', histogram_freq=1)
     ]
 
