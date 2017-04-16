@@ -127,7 +127,7 @@ def time_axis(time_steps, dropout):
     The time axis learns temporal patterns.
     """
     p_conv = Conv1D(32, 2 * OCTAVE, padding='same')
-    n_convs = [Conv1D(u, 7, padding='same') for u in [64, 64, 128, 128, 256, 256]]
+    n_convs = [Conv1D(u, OCTAVE, padding='same') for u in [256, 256]]
     beat_d = distributed(dropout, units=64)
 
     def f(notes_in, beat_in, style):
