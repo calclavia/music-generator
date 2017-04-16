@@ -126,8 +126,8 @@ def time_axis(time_steps, dropout):
 
     The time axis learns temporal patterns.
     """
-    p_conv = Conv1D(32, 2 * OCTAVE, padding='same')
-    n_convs = [Conv1D(u, 2 *  OCTAVE, padding='same') for u in [256]]
+    p_conv = gated_conv(32, 2 * OCTAVE, 1, 'same')
+    n_conv = gated_conv(TIME_AXIS_UNITS[0], 2 * OCTAVE, 1, 'same')
     beat_d = distributed(dropout, units=64)
 
     def f(notes_in, beat_in, style):
@@ -144,13 +144,11 @@ def time_axis(time_steps, dropout):
         # Change input into 4D tensor
         out = Reshape((time_steps, NUM_NOTES, 1))(out)
 
-        for n_conv in n_convs:
-            out = TimeDistributed(n_conv)(out)
-            out = Activation('tanh')(out)
-            out = Dropout(dropout)(out)
+        # Apply convolution to inputs
+        out = n_conv(out)
+        out = Dropout(dropout)(out)
 
-        pitch_class_bin_conv = TimeDistributed(p_conv)(pitch_class_bins)
-        pitch_class_bin_conv = Activation('tanh')(pitch_class_bin_conv)
+        pitch_class_bin_conv = p_conv(pitch_class_bins)
         pitch_class_bin_conv = Dropout(dropout)(pitch_class_bin_conv)
 
         spatial_context = Concatenate()([pitch_pos_in, pitch_class_in, pitch_class_bin_conv])
@@ -174,17 +172,41 @@ def time_axis(time_steps, dropout):
         """
 
         # TODO: Experiment if more layers are better
-        # TODO: Consider skip connections? Does residual help?
         # TODO: May be don't conv for the first layer to retain more information.
-        # TODO: Experiment if batch norm helps
+
         # Apply layers with increasing dilation
         for l, units in enumerate(TIME_AXIS_UNITS):
             prev = out
             out = conv_rnn(units, OCTAVE, 1, dropout)(out, spatial_context, temporal_context)
+            # TODO: Residual in this case makes it harder to converge.
+            # Maybe should be before activation?
             """
             if l > 0:
                 out = Add()([out, prev])
             """
+        return out
+    return f
+
+def gated_conv(units, kernel, dilation_rate, padding):
+    """
+    Convolutional gated activation units.
+    """
+    conv_tanh = Conv1D(units, kernel, dilation_rate=dilation_rate, padding=padding)
+    conv_sig = Conv1D(units, kernel, dilation_rate=dilation_rate, padding=padding)
+
+    def f(out, context=None):
+        tanh_out = TimeDistributed(conv_tanh)(out)
+        if context is not None:
+            tanh_out = Add()([tanh_out, context])
+        tanh_out = Activation('tanh')(tanh_out)
+
+        sig_out = TimeDistributed(conv_sig)(out)
+        if context is not None:
+            sig_out = Add()([sig_out, context])
+        sig_out = Activation('sigmoid')(sig_out)
+
+        # z = tanh(Wx + Vh) x sigmoid(Wx + Vh) from Wavenet
+        out = Multiply()([tanh_out, sig_out])
         return out
     return f
 
@@ -193,8 +215,7 @@ def di_causal_conv(dropout):
     Builds a casual dilation convolution model for each time step
     """
     # Define layers
-    conv_tanhs = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal') for l, units in enumerate(NOTE_AXIS_UNITS)]
-    conv_sigs = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal') for l, units in enumerate(NOTE_AXIS_UNITS)]
+    gated_convs = [gated_conv(units, 2, 2 ** l, 'causal') for l, units in enumerate(NOTE_AXIS_UNITS)]
     conv_skips = [Conv1D(units, 1, padding='same') for units in NOTE_AXIS_UNITS]
     conv_finals = [Conv1D(units, 1, padding='same') for units in FINAL_UNITS]
     dense_pred = Dense(1)
@@ -209,17 +230,7 @@ def di_causal_conv(dropout):
         for l, units in enumerate(NOTE_AXIS_UNITS):
             prev_out = out
 
-            # Gated activation unit.
-            tanh_out = TimeDistributed(conv_tanhs[l])(out)
-            tanh_out = Add()([tanh_out, context])
-            tanh_out = Activation('tanh')(tanh_out)
-
-            sig_out = TimeDistributed(conv_sigs[l])(out)
-            sig_out = Add()([sig_out, context])
-            sig_out = Activation('sigmoid')(sig_out)
-
-            # z = tanh(Wx + Vh) x sigmoid(Wx + Vh) from Wavenet
-            out = Multiply()([tanh_out, sig_out])
+            out = gated_convs[l](out, context)
             out = Dropout(dropout)(out)
 
             # Skip connection
