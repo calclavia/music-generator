@@ -34,9 +34,6 @@ def pitch_class_in_f(time_steps):
         pitch_class_matrix = tf.constant(pitch_class_matrix, dtype='float32')
         pitch_class_matrix = tf.reshape(pitch_class_matrix, [1, 1, NUM_NOTES, OCTAVE])
         return tf.tile(pitch_class_matrix, [tf.shape(x)[0], time_steps, 1, 1])
-        # note_ranges = (tf.range(NUM_NOTES, dtype='float32') % OCTAVE) / OCTAVE
-        # repeated_ranges = tf.tile(note_ranges, [tf.shape(x)[0] * time_steps])
-        # return tf.reshape(repeated_ranges, [tf.shape(x)[0], time_steps, NUM_NOTES, 1])
     return f
 
 def pitch_bins_f(time_steps):
@@ -52,70 +49,23 @@ def conv_rnn(units, kernel, dilation, dropout):
     A module that consist of a convolution followed by an parallel
     weight-shared LSTM layer.
     """
-    # Convolution before applying LSTM.
-    # conv = [Conv1D(units, kernel, dilation_rate=dilation, padding='same')]
-
     # Shared LSTM layer
     time_axis_rnn = LSTM(units, return_sequences=True, activation='tanh')
 
     def f(out, spatial_context, temporal_context):
-        """
-        for l, conv in enumerate(convs):
-            prev = out
-
-            if l > 0:
-                out = BatchNormalization()(out)
-                out = Activation('relu')(out)
-                out = Dropout(dropout)(out)
-
-            out = TimeDistributed(conv)(out)
-
-            if l > 0:
-                out = Add()([out, prev])
-
-        # Final activation
-        out = BatchNormalization()(out)
-        out = Activation('relu')(out)
-        out = Dropout(dropout)(out)
-        """
-
         out = Concatenate()([out, spatial_context])
 
         # Add the temporal context
         temporal_context = TimeDistributed(RepeatVector(NUM_NOTES))(temporal_context)
         out = Concatenate()([out, temporal_context])
 
-        # TODO: Try time distributing this.
+        # Apply LSTM layer
         out = Permute((2, 1, 3))(out)
 
         out = TimeDistributed(time_axis_rnn)(out)
         out = Dropout(dropout)(out)
 
         out = Permute((2, 1, 3))(out)
-
-        """
-        time_axis_outs = []
-
-        # Shared recurrent units for each note
-        for n in range(NUM_NOTES):
-            # Slice the current note
-            time_axis_out = Lambda(lambda x: x[:, :, n, :])(out)
-            time_axis_out = Concatenate()([time_axis_out, temporal_context])
-
-            for l, time_axis_rnn in enumerate(time_axis_rnns):
-                prev = time_axis_out
-                time_axis_out = time_axis_rnn(time_axis_out)
-                time_axis_out = Dropout(dropout)(time_axis_out)
-
-                if l > 0:
-                    time_axis_out = Add()([time_axis_out, prev])
-
-            time_axis_outs.append(time_axis_out)
-
-        # Stack each note slice into 4D vec of note features
-        # [batch, time, notes, features]
-        out = Lambda(lambda x: tf.stack(x, axis=2))(time_axis_outs)
-        """
         return out
     return f
 
@@ -131,11 +81,10 @@ def time_axis(time_steps, dropout):
     beat_d = distributed(dropout, units=64)
 
     def f(notes_in, beat_in, style):
-        # TODO: Do we need to share layer with note_axis? Res should take care.
+        # Context for the note position being played.
         pitch_pos_in = Lambda(pitch_pos_in_f(time_steps))(notes_in)
         pitch_class_in = Lambda(pitch_class_in_f(time_steps))(notes_in)
         # Pitch bin count helps determine chords
-        # TODO: Do we need pitch bins? Would that improve performance? Redundant?
         pitch_class_bins = Lambda(pitch_bins_f(time_steps))(notes_in)
 
         # Apply dropout to input
@@ -157,33 +106,10 @@ def time_axis(time_steps, dropout):
         beat = beat_d(beat_in)
         temporal_context = Concatenate()([beat, style])
 
-        # TODO: Experiment if conv can converge the same amount as without conv
-        # Cover adjacent notes
-        """
-        padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE], [0, 0]]))(out)
-        pitch_class_padded = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE], [0, 0]]))(pitch_class_bins)
-        adjacents = []
-
-        for n in range(NUM_NOTES):
-            adj = Lambda(lambda x: x[:, :, n:n+2*OCTAVE, 0])(padded_notes)
-            pitch_class_bins = Lambda(lambda x: x[:, :, n:n+2*OCTAVE, 0])(pitch_class_padded)
-            adjacents.append(Concatenate()([adj, pitch_class_bins]))
-        out = Lambda(lambda x: tf.stack(x, axis=2))(adjacents)
-        """
-
-        # TODO: Experiment if more layers are better
-        # TODO: May be don't conv for the first layer to retain more information.
-
         # Apply layers with increasing dilation
         for l, units in enumerate(TIME_AXIS_UNITS):
             prev = out
             out = conv_rnn(units, OCTAVE, 1, dropout)(out, spatial_context, temporal_context)
-            # TODO: Residual in this case makes it harder to converge.
-            # Maybe should be before activation?
-            """
-            if l > 0:
-                out = Add()([out, prev])
-            """
         return out
     return f
 
@@ -235,6 +161,7 @@ def di_causal_conv(dropout):
 
             # Skip connection
             skip_out = TimeDistributed(conv_skips[l])(out)
+            skip_out = Dropout(dropout)(skip_out)
             skips.append(skip_out)
 
             # Residual connection
@@ -244,12 +171,11 @@ def di_causal_conv(dropout):
 
         # Merge all skip connections. Improves convergence and output.
         out = Add()(skips)
+        out = Activation('relu')(out)
 
         for l, units in enumerate(FINAL_UNITS):
-            # TODO: Relu before or after?
-            # out = BatchNormalization()(out)
-            out = Activation('relu')(out)
             out = TimeDistributed(conv_finals[l])(out)
+            out = Activation('relu')(out)
             out = Dropout(dropout)(out)
 
         # Apply prediction layer

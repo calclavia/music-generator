@@ -10,8 +10,8 @@ NUM_STYLES = len(styles)
 NUM_NOTES = MAX_NOTE - MIN_NOTE
 
 # Training parameters
-BATCH_SIZE = 16
-TIME_STEPS = 16
+BATCH_SIZE = 8
+TIME_STEPS = 32
 
 # Hyperparameters
 TIME_AXIS_UNITS = [256, 256]
