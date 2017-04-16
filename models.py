@@ -44,25 +44,18 @@ def pitch_bins_f(time_steps):
         return bins
     return f
 
-def conv_rnn(units, kernel, dilation, dropout):
+def note_lstm(units, dropout):
     """
-    A module that consist of a convolution followed by an parallel
-    weight-shared LSTM layer.
+    A module that consist of an LSTM applied to each note.
     """
     # Shared LSTM layer
-    time_axis_rnn = LSTM(units, return_sequences=True, activation='tanh')
+    shared_lstm = LSTM(units, return_sequences=True, activation='tanh')
 
-    def f(out, spatial_context, temporal_context):
-        out = Concatenate()([out, spatial_context])
-
-        # Add the temporal context
-        temporal_context = TimeDistributed(RepeatVector(NUM_NOTES))(temporal_context)
-        out = Concatenate()([out, temporal_context])
-
+    def f(out):
         # Apply LSTM layer
         out = Permute((2, 1, 3))(out)
 
-        out = TimeDistributed(time_axis_rnn)(out)
+        out = TimeDistributed(shared_lstm)(out)
         out = Dropout(dropout)(out)
 
         out = Permute((2, 1, 3))(out)
@@ -76,9 +69,9 @@ def time_axis(time_steps, dropout):
 
     The time axis learns temporal patterns.
     """
-    p_conv = gated_conv(32, 2 * OCTAVE, 1, 'same')
-    n_conv = gated_conv(TIME_AXIS_UNITS[0], 2 * OCTAVE, 1, 'same')
-    beat_d = distributed(dropout, units=64)
+    p_conv = gated_conv(PITCH_CLASS_UNITS, 2 * OCTAVE, 1, 'same')
+    n_conv = gated_conv(NOTE_CONV_UNITS, 2 * OCTAVE, 1, 'same')
+    beat_d = distributed(dropout, units=BEAT_UNITS)
 
     def f(notes_in, beat_in, style):
         # Context for the note position being played.
@@ -105,10 +98,13 @@ def time_axis(time_steps, dropout):
         # Add temporal_context
         beat = beat_d(beat_in)
         temporal_context = Concatenate()([beat, style])
+        temporal_context = TimeDistributed(RepeatVector(NUM_NOTES))(temporal_context)
 
-        # Apply layers with increasing dilation
+        # Apply contexts
+        out = Concatenate()([out, spatial_context, temporal_context])
+
         for l, units in enumerate(TIME_AXIS_UNITS):
-            out = conv_rnn(units, OCTAVE, 1, dropout)(out, spatial_context, temporal_context)
+            out = note_lstm(units, dropout)(out)
         return out
     return f
 
@@ -118,16 +114,20 @@ def gated_conv(units, kernel, dilation_rate, padding):
     """
     conv_tanh = Conv1D(units, kernel, dilation_rate=dilation_rate, padding=padding)
     conv_sig = Conv1D(units, kernel, dilation_rate=dilation_rate, padding=padding)
+    tanh_context_projection = Dense(units)
+    sig_context_projection = Dense(units)
 
     def f(out, context=None):
         tanh_out = TimeDistributed(conv_tanh)(out)
         if context is not None:
-            tanh_out = Add()([tanh_out, context])
+            tanh_context = TimeDistributed(TimeDistributed(tanh_context_projection))(context)
+            tanh_out = Add()([tanh_out, tanh_context])
         tanh_out = Activation('tanh')(tanh_out)
 
         sig_out = TimeDistributed(conv_sig)(out)
         if context is not None:
-            sig_out = Add()([sig_out, context])
+            sig_context = TimeDistributed(TimeDistributed(sig_context_projection))(context)
+            sig_out = Add()([sig_out, sig_context])
         sig_out = Activation('sigmoid')(sig_out)
 
         # z = tanh(Wx + Vh) x sigmoid(Wx + Vh) from Wavenet
@@ -237,7 +237,6 @@ def build_models(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     chosen = Dropout(input_dropout)(chosen_in)
 
     # Style linear projection
-    # TODO: Style's effect isn't very strong
     l_style = distributed(dropout)
     style = l_style(style)
 
