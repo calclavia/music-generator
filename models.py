@@ -1,7 +1,7 @@
 import tensorflow as tf
 from keras.layers import Input, Flatten, Activation, LSTM, Dense, Dropout, \
                          Lambda, Permute, Reshape, Conv1D, MaxPooling1D, \
-                         BatchNormalization, TimeDistributed, RepeatVector
+                         TimeDistributed, RepeatVector
 from keras.models import Model, load_model
 from keras.callbacks import ModelCheckpoint, LambdaCallback, ReduceLROnPlateau, EarlyStopping, TensorBoard
 from keras.layers.merge import Concatenate, Add, Multiply
@@ -53,10 +53,10 @@ def conv_rnn(units, kernel, dilation, dropout):
     weight-shared LSTM layer.
     """
     # Convolution before applying LSTM.
-    convs = [Conv1D(units, kernel, dilation_rate=dilation, padding='same')]
+    # conv = [Conv1D(units, kernel, dilation_rate=dilation, padding='same')]
 
     # Shared LSTM layer
-    time_axis_rnns = [LSTM(units, return_sequences=True, activation='tanh')]
+    time_axis_rnn = LSTM(units, return_sequences=True, activation='relu')
 
     def f(out, spatial_context, temporal_context):
         """
@@ -81,6 +81,19 @@ def conv_rnn(units, kernel, dilation, dropout):
 
         out = Concatenate()([out, spatial_context])
 
+        # Add the temporal context
+        temporal_context = TimeDistributed(RepeatVector(NUM_NOTES))(temporal_context)
+        out = Concatenate()([out, temporal_context])
+
+        # TODO: Try time distributing this.
+        out = Permute((2, 1, 3))(out)
+
+        out = TimeDistributed(time_axis_rnn)(out)
+        out = Dropout(dropout)(out)
+
+        out = Permute((2, 1, 3))(out)
+
+        """
         time_axis_outs = []
 
         # Shared recurrent units for each note
@@ -102,10 +115,11 @@ def conv_rnn(units, kernel, dilation, dropout):
         # Stack each note slice into 4D vec of note features
         # [batch, time, notes, features]
         out = Lambda(lambda x: tf.stack(x, axis=2))(time_axis_outs)
+        """
         return out
     return f
 
-def time_axis(time_steps, input_dropout, dropout):
+def time_axis(time_steps, dropout):
     """
     Constructs a time axis model, which outputs feature representations for
     every single note.
@@ -113,7 +127,8 @@ def time_axis(time_steps, input_dropout, dropout):
     The time axis learns temporal patterns.
     """
     p_conv = Conv1D(32, 2 * OCTAVE, padding='same')
-    beat_d = distributed(dropout, units=32)
+    n_convs = [Conv1D(u, 7, padding='same') for u in [64, 64, 128, 128, 256, 256]]
+    beat_d = distributed(dropout, units=64)
 
     def f(notes_in, beat_in, style):
         # TODO: Do we need to share layer with note_axis? Res should take care.
@@ -124,31 +139,39 @@ def time_axis(time_steps, input_dropout, dropout):
         pitch_class_bins = Lambda(pitch_bins_f(time_steps))(notes_in)
 
         # Apply dropout to input
-        out = Dropout(input_dropout)(notes_in)
+        out = notes_in
 
         # Change input into 4D tensor
         out = Reshape((time_steps, NUM_NOTES, 1))(out)
 
-        # Add in spatial context as channels into the "note image"
+        for n_conv in n_convs:
+            out = TimeDistributed(n_conv)(out)
+            out = Activation('relu')(out)
+            out = Dropout(dropout)(out)
+
         pitch_class_bin_conv = TimeDistributed(p_conv)(pitch_class_bins)
+        pitch_class_bin_conv = Activation('relu')(pitch_class_bin_conv)
         pitch_class_bin_conv = Dropout(dropout)(pitch_class_bin_conv)
 
         spatial_context = Concatenate()([pitch_pos_in, pitch_class_in, pitch_class_bin_conv])
 
         # Add temporal_context
-        beat = beat_d(Dropout(input_dropout)(beat_in))
-
+        beat = beat_d(beat_in)
         temporal_context = Concatenate()([beat, style])
 
         # TODO: Experiment if conv can converge the same amount as without conv
         # Cover adjacent notes
+        """
         padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE], [0, 0]]))(out)
+        pitch_class_padded = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE], [0, 0]]))(pitch_class_bins)
         adjacents = []
 
         for n in range(NUM_NOTES):
             adj = Lambda(lambda x: x[:, :, n:n+2*OCTAVE, 0])(padded_notes)
-            adjacents.append(adj)
+            pitch_class_bins = Lambda(lambda x: x[:, :, n:n+2*OCTAVE, 0])(pitch_class_padded)
+            adjacents.append(Concatenate()([adj, pitch_class_bins]))
         out = Lambda(lambda x: tf.stack(x, axis=2))(adjacents)
+        """
 
         # TODO: Experiment if more layers are better
         # TODO: Consider skip connections? Does residual help?
@@ -158,9 +181,10 @@ def time_axis(time_steps, input_dropout, dropout):
         for l, units in enumerate(TIME_AXIS_UNITS):
             prev = out
             out = conv_rnn(units, OCTAVE, 1, dropout)(out, spatial_context, temporal_context)
-
+            """
             if l > 0:
                 out = Add()([out, prev])
+            """
         return out
     return f
 
@@ -188,12 +212,10 @@ def di_causal_conv(dropout):
             # Gated activation unit.
             tanh_out = TimeDistributed(conv_tanhs[l])(out)
             tanh_out = Add()([tanh_out, context])
-            # tanh_out = BatchNormalization()(tanh_out)
             tanh_out = Activation('tanh')(tanh_out)
 
             sig_out = TimeDistributed(conv_sigs[l])(out)
             sig_out = Add()([sig_out, context])
-            # sig_out = BatchNormalization()(sig_out)
             sig_out = Activation('sigmoid')(sig_out)
 
             # z = tanh(Wx + Vh) x sigmoid(Wx + Vh) from Wavenet
@@ -228,7 +250,7 @@ def di_causal_conv(dropout):
         return out
     return f
 
-def note_axis(input_dropout, dropout):
+def note_axis(dropout):
     """
     Constructs a note axis model that learns how to create harmonies.
     Outputs probability of playing each note.
@@ -238,7 +260,6 @@ def note_axis(input_dropout, dropout):
     def f(note_features, chosen_in, style):
         # Shift target one note to the left.
         shift_chosen = Lambda(lambda x: tf.pad(x[:, :, :-1], [[0, 0], [0, 0], [1, 0]]))(chosen_in)
-        shift_chosen = Dropout(input_dropout)(shift_chosen)
         shift_chosen = Lambda(lambda x: tf.expand_dims(x, -1))(shift_chosen)
 
         # Reshape to 4D tensor [batch, time, notes, 1]
@@ -264,28 +285,38 @@ def distributed(dropout, units=STYLE_UNITS):
 
 def build_models(time_steps=TIME_STEPS, input_dropout=0.2, dropout=0.5):
     """
-    Define inputs
+    Training Model
     """
+    # Define inputs
     notes_in = Input((time_steps, NUM_NOTES), name='note_in')
     beat_in = Input((time_steps, NOTES_PER_BAR), name='beat_in')
     style_in = Input((time_steps, NUM_STYLES), name='style_in')
     # Target input for conditioning
     chosen_in = Input((time_steps, NUM_NOTES), name='chosen_in')
 
+    # Dropout all inputs
+    notes = Dropout(input_dropout)(notes_in)
+    beat = Dropout(input_dropout)(beat_in)
+    style = Dropout(input_dropout)(style_in)
+    chosen = Dropout(input_dropout)(chosen_in)
+
     # Style linear projection
     l_style = distributed(dropout)
-    style = l_style(Dropout(input_dropout)(style_in))
+    style = l_style(style)
 
     # Apply time-axis model
-    time_out = time_axis(time_steps, input_dropout, dropout)(notes_in, beat_in, style)
+    time_out = time_axis(time_steps, dropout)(notes, beat, style)
 
     # Apply note-axis model
-    naxis = note_axis(input_dropout, dropout)
-    note_out = naxis(time_out, chosen_in, style)
+    naxis = note_axis(dropout)
+    note_out = naxis(time_out, chosen, style)
 
     model = Model([notes_in, chosen_in, beat_in, style_in], note_out)
-    model.compile(optimizer='adam', loss='binary_crossentropy')
+    model.compile(optimizer='nadam', loss='binary_crossentropy')
 
+    """
+    Generation Models
+    """
     # Build generation models which share the same weights
     time_model = Model([notes_in, beat_in, style_in], time_out)
 
