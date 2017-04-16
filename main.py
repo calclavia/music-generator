@@ -46,7 +46,7 @@ def train(models, gen):
 
     # TODO: We need to know when to stop based on validation set!
     cbs = [
-        ModelCheckpoint('out/model.h5', monitor='val_loss', save_best_only=True),
+        ModelCheckpoint('out/model.h5', monitor='val_loss', save_best_only=True, save_weights_only=True),
         EarlyStopping(patience=5, monitor='val_loss'),
         TensorBoard(log_dir='out/logs', histogram_freq=1)
     ]
