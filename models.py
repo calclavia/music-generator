@@ -56,7 +56,7 @@ def conv_rnn(units, kernel, dilation, dropout):
     # conv = [Conv1D(units, kernel, dilation_rate=dilation, padding='same')]
 
     # Shared LSTM layer
-    time_axis_rnn = LSTM(units, return_sequences=True, activation='relu')
+    time_axis_rnn = LSTM(units, return_sequences=True, activation='tanh')
 
     def f(out, spatial_context, temporal_context):
         """
@@ -127,7 +127,7 @@ def time_axis(time_steps, dropout):
     The time axis learns temporal patterns.
     """
     p_conv = Conv1D(32, 2 * OCTAVE, padding='same')
-    n_convs = [Conv1D(u, OCTAVE, padding='same') for u in [256, 256]]
+    n_convs = [Conv1D(u, 2 *  OCTAVE, padding='same') for u in [256]]
     beat_d = distributed(dropout, units=64)
 
     def f(notes_in, beat_in, style):
@@ -146,11 +146,11 @@ def time_axis(time_steps, dropout):
 
         for n_conv in n_convs:
             out = TimeDistributed(n_conv)(out)
-            out = Activation('relu')(out)
+            out = Activation('tanh')(out)
             out = Dropout(dropout)(out)
 
         pitch_class_bin_conv = TimeDistributed(p_conv)(pitch_class_bins)
-        pitch_class_bin_conv = Activation('relu')(pitch_class_bin_conv)
+        pitch_class_bin_conv = Activation('tanh')(pitch_class_bin_conv)
         pitch_class_bin_conv = Dropout(dropout)(pitch_class_bin_conv)
 
         spatial_context = Concatenate()([pitch_pos_in, pitch_class_in, pitch_class_bin_conv])

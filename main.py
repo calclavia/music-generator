@@ -19,12 +19,13 @@ def main():
     parser = argparse.ArgumentParser(description='Generates music.')
     parser.add_argument('--train', default=False, action='store_true', help='Train model?')
     parser.add_argument('--gen', default=0, type=int, help='Generate per how many epochs?')
+    parser.add_argument('--validate', default=False, action='store_true', help='Perform validation?')
     args = parser.parse_args()
 
     models = build_or_load()
 
     if args.train:
-        train(models, args.gen)
+        train(models, args.gen, args.validate)
     else:
         write_file('sample', generate(models))
 
@@ -40,14 +41,16 @@ def build_or_load(allow_load=True):
             print(e)
     return models
 
-def train(models, gen):
+def train(models, gen, validate):
     print('Training')
     train_data, train_labels = load_all(styles, TIME_STEPS)
 
     # TODO: We need to know when to stop based on validation set!
+    monitor = 'val_loss' if validate else 'loss'
+
     cbs = [
-        ModelCheckpoint('out/model.h5', monitor='val_loss', save_best_only=True),
-        EarlyStopping(patience=5, monitor='val_loss'),
+        ModelCheckpoint('out/model.h5', monitor=monitor, save_best_only=True),
+        EarlyStopping(patience=5, monitor=monitor),
         TensorBoard(log_dir='out/logs', histogram_freq=1)
     ]
 
@@ -59,7 +62,7 @@ def train(models, gen):
 
         cbs += [LambdaCallback(on_epoch_end=epoch_cb)]
 
-    models[0].fit(train_data, train_labels, validation_split=0.1, epochs=1000, callbacks=cbs, batch_size=BATCH_SIZE)
+    models[0].fit(train_data, train_labels, validation_split=0.1 if validate else 0, epochs=1000, callbacks=cbs, batch_size=BATCH_SIZE)
 
 if __name__ == '__main__':
     main()
