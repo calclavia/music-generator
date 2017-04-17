@@ -48,7 +48,7 @@ def train(model, gen):
             write_file('result_epoch_{}'.format(epoch), generate(model))
 
     cbs = [
-        ModelCheckpoint('out/model.h5', monitor='loss', save_best_only=True),
+        ModelCheckpoint('out/model.h5', monitor='loss', save_best_only=True, save_weights_only=True),
         ReduceLROnPlateau(patience=2),
         EarlyStopping(patience=5),
         TensorBoard(log_dir='out/logs', histogram_freq=1)
