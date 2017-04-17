@@ -93,23 +93,30 @@ def time_axis(time_steps, dropout):
         """
         # Pad note by one octave
         out = notes_in
-        padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE]]), name='padded_note_in')(out)
+
+        # Context for the note position being played.
+        pitch_pos_in = Lambda(pitch_pos_in_f(time_steps))(notes_in)
+        pitch_class_in = Lambda(pitch_class_in_f(time_steps))(notes_in)
+        # Pitch bin count helps determine chords
+        pitch_class_bins = Lambda(pitch_bins_f(time_steps))(notes_in)
+
+        padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE]]))(out)
+        padded_bins = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE], [0, 0]]))(pitch_class_bins)
 
         # Create inputs for each time step
         time_axis_outs = []
 
         for n in range(OCTAVE, NUM_NOTES + OCTAVE):
             # Input one octave of notes
-            octave_in = Lambda(lambda x: x[:, :, n - OCTAVE:n + OCTAVE + 1], name='note_' + str(n))(padded_notes)
-            # Pitch position of note
-            pitch_pos_in = Lambda(lambda x: tf.fill([tf.shape(x)[0], time_steps, 1], n / (NUM_NOTES - 1)))(notes_in)
-            # Pitch class of current note
-            pitch_class_in = Lambda(lambda x: tf.reshape(tf.tile(tf.constant(one_hot(n % OCTAVE, OCTAVE), dtype=tf.float32), [tf.shape(x)[0] * time_steps]), [tf.shape(x)[0], time_steps, OCTAVE]))(notes_in)
-
-            time_axis_out = Concatenate()([octave_in, pitch_pos_in, pitch_class_in, beat_in, style])
+            octave_in = Lambda(lambda x: x[:, :, n - OCTAVE:n + OCTAVE + 1])(padded_notes)
+            bin_in = Lambda(lambda x: x[:, :, n - OCTAVE:n + OCTAVE + 1, 0])(padded_bins)
+            time_axis_out = Concatenate()([octave_in, bin_in, beat_in, style])
             time_axis_outs.append(time_axis_out)
 
         out = Lambda(lambda x: tf.stack(x, axis=2))(time_axis_outs)
+
+        # Add spatial context
+        out = Concatenate()([out, pitch_pos_in, pitch_class_in])
 
         out = Permute((2, 1, 3))(out)
 
@@ -205,8 +212,8 @@ def di_causal_conv(dropout):
         # Create large enough dilation to cover all notes
         for l, units in enumerate(NOTE_AXIS_UNITS):
             prev_out = out
-            # TODO: Renable style
-            out = gated_convs[l](out)#, context)
+
+            out = gated_convs[l](out, context)
             out = Dropout(dropout)(out)
 
             # Skip connection
