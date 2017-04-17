@@ -87,6 +87,40 @@ def time_axis(time_steps, dropout):
     beat_d = distributed(dropout, units=BEAT_UNITS)
 
     def f(notes_in, beat_in, style):
+        """
+        Time axis
+        Responsible for learning temporal patterns.
+        """
+        # Pad note by one octave
+        out = notes_in
+        padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE]]), name='padded_note_in')(out)
+
+        # Create inputs for each time step
+        time_axis_outs = []
+
+        for n in range(OCTAVE, NUM_NOTES + OCTAVE):
+            # Input one octave of notes
+            octave_in = Lambda(lambda x: x[:, :, n - OCTAVE:n + OCTAVE + 1], name='note_' + str(n))(padded_notes)
+            # Pitch position of note
+            pitch_pos_in = Lambda(lambda x: tf.fill([tf.shape(x)[0], time_steps, 1], n / (NUM_NOTES - 1)))(notes_in)
+            # Pitch class of current note
+            pitch_class_in = Lambda(lambda x: tf.reshape(tf.tile(tf.constant(one_hot(n % OCTAVE, OCTAVE), dtype=tf.float32), [tf.shape(x)[0] * time_steps]), [tf.shape(x)[0], time_steps, OCTAVE]))(notes_in)
+
+            time_axis_out = Concatenate()([octave_in, pitch_pos_in, pitch_class_in, beat_in, style])
+            time_axis_outs.append(time_axis_out)
+
+        out = Lambda(lambda x: tf.stack(x, axis=2))(time_axis_outs)
+
+        out = Permute((2, 1, 3))(out)
+
+        out = TimeDistributed(LSTM(TIME_AXIS_UNITS[0], return_sequences=True, activation='tanh'))(out)
+        out = Dropout(dropout)(out)
+        out = TimeDistributed(LSTM(TIME_AXIS_UNITS[1], return_sequences=True, activation='tanh'))(out)
+        out = Dropout(dropout)(out)
+
+        out = Permute((2, 1, 3))(out)
+        return out
+        """
         # Context for the note position being played.
         pitch_pos_in = Lambda(pitch_pos_in_f(time_steps))(notes_in)
         pitch_class_in = Lambda(pitch_class_in_f(time_steps))(notes_in)
@@ -122,6 +156,7 @@ def time_axis(time_steps, dropout):
         for l, units in enumerate(TIME_AXIS_UNITS):
             out = note_lstm(units, dropout)(out)
         return out
+        """
     return f
 
 def gated_conv(units, kernel, dilation_rate, padding):
