@@ -73,6 +73,7 @@ def time_axis(time_steps, dropout):
         Time axis
         Responsible for learning temporal patterns.
         """
+        time_steps = int(notes_in.get_shape()[1])
         # Pad note by one octave
         out = notes_in
         padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE]]), name='padded_note_in')(out)
@@ -87,7 +88,7 @@ def time_axis(time_steps, dropout):
             pitch_pos_in = Lambda(lambda x: tf.fill([tf.shape(x)[0], time_steps, 1], n / (NUM_NOTES - 1)))(notes_in)
             # Pitch class of current note
             pitch_class_in = Lambda(lambda x: tf.reshape(tf.tile(tf.constant(one_hot(n % OCTAVE, OCTAVE), dtype=tf.float32), [tf.shape(x)[0] * time_steps]), [tf.shape(x)[0], time_steps, OCTAVE]))(notes_in)
-
+            # TODO: Residual doesn't work here?
             time_axis_out = Concatenate()([octave_in, pitch_pos_in, pitch_class_in, beat_in, style])
             first_layer_out = time_axis_out = Dropout(dropout)(time_axis_rnn[0](time_axis_out))
             time_axis_out = Dropout(dropout)(time_axis_rnn[1](time_axis_out))
@@ -96,6 +97,8 @@ def time_axis(time_steps, dropout):
             time_axis_outs.append(time_axis_out)
 
         out = Lambda(lambda x: tf.stack(x, axis=2))(time_axis_outs)
+        out = Reshape((time_steps, NUM_NOTES, -1))(out)
+        return out
     return f
 
 def gated_conv(units, kernel, dilation_rate, padding):
@@ -180,47 +183,45 @@ def note_axis(dropout):
     Constructs a note axis model that learns how to create harmonies.
     Outputs probability of playing each note.
     """
-    dconv = di_causal_conv(dropout)
+    # Define shared layers
+    # note_axis_rnn_1 = LSTM(units, return_sequences=True, activation='tanh', name='note_axis_rnn_1')
+    # note_axis_rnn_2 = LSTM(units, return_sequences=True, activation='tanh', name='note_axis_rnn_2')
+    note_axis_conv_tanh = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', name='note_axis_conv_tanh_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
+    note_axis_conv_sig = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', name='note_axis_conv_sig_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
+
+    note_axis_conv_res = [Conv1D(units, 1, padding='same', name='note_axis_conv_res_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
+    note_axis_conv_skip = [Conv1D(units, 1, padding='same', name='note_axis_conv_skip_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
+
+    note_axis_conv_final = [Conv1D(units, 1, padding='same', name='note_axis_conv_final_' + str(l)) for l, units in enumerate(FINAL_UNITS)]
+
+    dense_lin_proj = Dense(128)
+    prediction_layer = Dense(1, activation='sigmoid')
 
     def f(note_features, chosen_in, style):
         """
         Note Axis & Prediction Layer
         Responsible for learning spatial patterns and harmonies.
         """
+        time_steps = int(note_features.get_shape()[1])
+
         # Shift target one note to the left. []
         shift_chosen = Lambda(lambda x: tf.pad(x[:, :, :-1], [[0, 0], [0, 0], [1, 0]]))(chosen_in)
         shift_chosen = Lambda(lambda x: tf.expand_dims(x, -1))(shift_chosen)
 
-        # Define shared layers
-        # note_axis_rnn_1 = LSTM(units, return_sequences=True, activation='tanh', name='note_axis_rnn_1')
-        # note_axis_rnn_2 = LSTM(units, return_sequences=True, activation='tanh', name='note_axis_rnn_2')
-        note_axis_conv_tanh = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', name='note_axis_conv_tanh_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
-        note_axis_conv_sig = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', name='note_axis_conv_sig_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
-
-        note_axis_conv_res = [Conv1D(units, 1, padding='same', name='note_axis_conv_res_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
-        note_axis_conv_skip = [Conv1D(units, 1, padding='same', name='note_axis_conv_skip_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
-
-        note_axis_conv_final = [Conv1D(units, 1, padding='same', name='note_axis_conv_final_' + str(l)) for l, units in enumerate(FINAL_UNITS)]
-
         # Style linear projection
-        style_distributed_tanh = TimeDistributed(Dense(STYLE_UNITS))(style)
+        # TODO: TimeDistributed seems to be causing bugs.
+        style_distributed_tanh = TimeDistributed(dense_lin_proj)(style)
 
-        prediction_layer = Dense(1, activation='sigmoid')
         note_axis_outs = []
 
         # Reshape inputs
-        # [batch, time, notes, features]
-        out = Reshape((time_steps, NUM_NOTES, -1))(out)
-        # [batch, time, notes, 1]
-        shift_chosen = Reshape((time_steps, NUM_NOTES, -1))(shift_chosen)
         # [batch, time, notes, features + 1]
-        note_axis_input = Concatenate(axis=3)([out, shift_chosen])
+        note_axis_input = Concatenate(axis=3)([note_features, shift_chosen])
 
         for t in range(time_steps):
             # [batch, notes, features + 1]
             note_axis_out = Lambda(lambda x: x[:, t, :, :], name='time_' + str(t))(note_axis_input)
             style_sliced_tanh = RepeatVector(NUM_NOTES)(Lambda(lambda x: x[:, t, :], name='style_tanh_' + str(t))(style_distributed_tanh))
-            # style_sliced_sig = RepeatVector(NUM_NOTES)(Lambda(lambda x: x[:, t, :], name='style_sig_' + str(t))(style_distributed_sig))
 
             """
             first_layer_out = note_axis_out = Dropout(dropout)(note_axis_rnn_1(note_axis_out))
@@ -265,7 +266,12 @@ def note_axis(dropout):
             note_axis_out = prediction_layer(note_axis_out)
             note_axis_out = Reshape((NUM_NOTES,))(note_axis_out)
             note_axis_outs.append(note_axis_out)
-        out = Lambda(lambda x: tf.stack(x, axis=1))(note_axis_outs)
+
+        if len(note_axis_outs) == 1:
+            out = note_axis_outs[0]
+        else:
+            out = Lambda(lambda x: tf.stack(x, axis=1))(note_axis_outs)
+            
         return out
     return f
 
