@@ -57,24 +57,6 @@ def reach_octave():
         return out
     return f
 
-def note_lstm(units, dropout):
-    """
-    A module that consist of an LSTM applied to each note.
-    """
-    # Shared LSTM layer
-    shared_lstm = LSTM(units, return_sequences=True, activation='tanh')
-
-    def f(out):
-        # Apply LSTM layer
-        out = Permute((2, 1, 3))(out)
-
-        out = TimeDistributed(shared_lstm)(out)
-        out = Dropout(dropout)(out)
-
-        out = Permute((2, 1, 3))(out)
-        return out
-    return f
-
 def time_axis(time_steps, dropout):
     """
     Constructs a time axis model, which outputs feature representations for
@@ -93,77 +75,27 @@ def time_axis(time_steps, dropout):
         """
         # Pad note by one octave
         out = notes_in
+        padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE]]), name='padded_note_in')(out)
 
-        # Context for the note position being played.
-        pitch_pos_in = Lambda(pitch_pos_in_f(time_steps))(notes_in)
-        pitch_class_in = Lambda(pitch_class_in_f(time_steps))(notes_in)
-        # Pitch bin count helps determine chords
-        pitch_class_bins = Lambda(pitch_bins_f(time_steps))(notes_in)
-
-        padded_notes = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE]]))(out)
-        padded_bins = Lambda(lambda x: tf.pad(x, [[0, 0], [0, 0], [OCTAVE, OCTAVE], [0, 0]]))(pitch_class_bins)
-
-        # Create inputs for each time step
+        time_axis_rnn = [LSTM(units, return_sequences=True, activation='tanh', name='time_axis_rnn_' + str(i)) for i, units in enumerate(TIME_AXIS_UNITS)]
         time_axis_outs = []
 
         for n in range(OCTAVE, NUM_NOTES + OCTAVE):
             # Input one octave of notes
-            octave_in = Lambda(lambda x: x[:, :, n - OCTAVE:n + OCTAVE + 1])(padded_notes)
-            bin_in = Lambda(lambda x: x[:, :, n - OCTAVE:n + OCTAVE + 1, 0])(padded_bins)
-            time_axis_out = Concatenate()([octave_in, bin_in, beat_in, style])
+            octave_in = Lambda(lambda x: x[:, :, n - OCTAVE:n + OCTAVE + 1], name='note_' + str(n))(padded_notes)
+            # Pitch position of note
+            pitch_pos_in = Lambda(lambda x: tf.fill([tf.shape(x)[0], time_steps, 1], n / (NUM_NOTES - 1)))(notes_in)
+            # Pitch class of current note
+            pitch_class_in = Lambda(lambda x: tf.reshape(tf.tile(tf.constant(one_hot(n % OCTAVE, OCTAVE), dtype=tf.float32), [tf.shape(x)[0] * time_steps]), [tf.shape(x)[0], time_steps, OCTAVE]))(notes_in)
+
+            time_axis_out = Concatenate()([octave_in, pitch_pos_in, pitch_class_in, beat_in, style])
+            first_layer_out = time_axis_out = Dropout(dropout)(time_axis_rnn[0](time_axis_out))
+            time_axis_out = Dropout(dropout)(time_axis_rnn[1](time_axis_out))
+            # Residual connection
+            time_axis_out = Add()([first_layer_out, time_axis_out])
             time_axis_outs.append(time_axis_out)
 
         out = Lambda(lambda x: tf.stack(x, axis=2))(time_axis_outs)
-
-        # Add spatial context
-        out = Concatenate()([out, pitch_pos_in, pitch_class_in])
-
-        out = Permute((2, 1, 3))(out)
-
-        out = TimeDistributed(LSTM(TIME_AXIS_UNITS[0], return_sequences=True, activation='tanh'))(out)
-        out = Dropout(dropout)(out)
-        out = TimeDistributed(LSTM(TIME_AXIS_UNITS[1], return_sequences=True, activation='tanh'))(out)
-        out = Dropout(dropout)(out)
-
-        out = Permute((2, 1, 3))(out)
-        return out
-        """
-        # Context for the note position being played.
-        pitch_pos_in = Lambda(pitch_pos_in_f(time_steps))(notes_in)
-        pitch_class_in = Lambda(pitch_class_in_f(time_steps))(notes_in)
-        # Pitch bin count helps determine chords
-        pitch_class_bins = Lambda(pitch_bins_f(time_steps))(notes_in)
-
-        # Apply dropout to input
-        out = notes_in
-
-        # Change input into 4D tensor
-        out = Reshape((time_steps, NUM_NOTES, 1))(out)
-
-        # Apply convolution to inputs
-        # out = n_conv(out)
-        # out = Dropout(dropout)(out)
-
-        # pitch_class_bin_conv = p_conv(pitch_class_bins)
-        # pitch_class_bin_conv = Dropout(dropout)(pitch_class_bin_conv)
-
-        out = reach_octave()(out)
-        pitch_class_bin_conv = reach_octave()(pitch_class_bins)
-
-        spatial_context = Concatenate()([pitch_pos_in, pitch_class_in, pitch_class_bin_conv])
-
-        # Add temporal_context
-        beat = beat_d(beat_in)
-        temporal_context = Concatenate()([beat, style])
-        temporal_context = TimeDistributed(RepeatVector(NUM_NOTES))(temporal_context)
-
-        # Apply contexts
-        out = Concatenate()([out, spatial_context, temporal_context])
-
-        for l, units in enumerate(TIME_AXIS_UNITS):
-            out = note_lstm(units, dropout)(out)
-        return out
-        """
     return f
 
 def gated_conv(units, kernel, dilation_rate, padding):
@@ -251,19 +183,89 @@ def note_axis(dropout):
     dconv = di_causal_conv(dropout)
 
     def f(note_features, chosen_in, style):
-        # Shift target one note to the left.
+        """
+        Note Axis & Prediction Layer
+        Responsible for learning spatial patterns and harmonies.
+        """
+        # Shift target one note to the left. []
         shift_chosen = Lambda(lambda x: tf.pad(x[:, :, :-1], [[0, 0], [0, 0], [1, 0]]))(chosen_in)
         shift_chosen = Lambda(lambda x: tf.expand_dims(x, -1))(shift_chosen)
 
-        # Reshape to 4D tensor [batch, time, notes, 1]
-        shift_chosen = Reshape((-1, NUM_NOTES, 1))(shift_chosen)
-        # Add the chosen notes to the features [batch, time, notes, features + 1]
-        note_input = Concatenate(axis=3)([note_features, shift_chosen])
+        # Define shared layers
+        # note_axis_rnn_1 = LSTM(units, return_sequences=True, activation='tanh', name='note_axis_rnn_1')
+        # note_axis_rnn_2 = LSTM(units, return_sequences=True, activation='tanh', name='note_axis_rnn_2')
+        note_axis_conv_tanh = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', name='note_axis_conv_tanh_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
+        note_axis_conv_sig = [Conv1D(units, 2, dilation_rate=2 ** l, padding='causal', name='note_axis_conv_sig_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
 
-        # Style for each note repeated [batch, time, notes, STYLE_UNITS]
-        style_repeated = TimeDistributed(RepeatVector(NUM_NOTES))(style)
-        # Apply a dilated convolution model
-        out = dconv(note_input, style_repeated)
+        note_axis_conv_res = [Conv1D(units, 1, padding='same', name='note_axis_conv_res_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
+        note_axis_conv_skip = [Conv1D(units, 1, padding='same', name='note_axis_conv_skip_' + str(l)) for l, units in enumerate(NOTE_AXIS_UNITS)]
+
+        note_axis_conv_final = [Conv1D(units, 1, padding='same', name='note_axis_conv_final_' + str(l)) for l, units in enumerate(FINAL_UNITS)]
+
+        # Style linear projection
+        style_distributed_tanh = TimeDistributed(Dense(STYLE_UNITS))(style)
+
+        prediction_layer = Dense(1, activation='sigmoid')
+        note_axis_outs = []
+
+        # Reshape inputs
+        # [batch, time, notes, features]
+        out = Reshape((time_steps, NUM_NOTES, -1))(out)
+        # [batch, time, notes, 1]
+        shift_chosen = Reshape((time_steps, NUM_NOTES, -1))(shift_chosen)
+        # [batch, time, notes, features + 1]
+        note_axis_input = Concatenate(axis=3)([out, shift_chosen])
+
+        for t in range(time_steps):
+            # [batch, notes, features + 1]
+            note_axis_out = Lambda(lambda x: x[:, t, :, :], name='time_' + str(t))(note_axis_input)
+            style_sliced_tanh = RepeatVector(NUM_NOTES)(Lambda(lambda x: x[:, t, :], name='style_tanh_' + str(t))(style_distributed_tanh))
+            # style_sliced_sig = RepeatVector(NUM_NOTES)(Lambda(lambda x: x[:, t, :], name='style_sig_' + str(t))(style_distributed_sig))
+
+            """
+            first_layer_out = note_axis_out = Dropout(dropout)(note_axis_rnn_1(note_axis_out))
+            note_axis_out = Dropout(dropout)(note_axis_rnn_2(note_axis_out))
+            # Residual connection
+            note_axis_out = Add()([first_layer_out, note_axis_out])
+            """
+            skips = []
+            # Create large enough dilation to cover all notes
+            for l, units in enumerate(NOTE_AXIS_UNITS):
+                prev_out = note_axis_out
+
+                # Gated activation unit.
+                tanh_out = Activation('tanh')(Add()([note_axis_conv_tanh[l](note_axis_out), style_sliced_tanh]))
+                sig_out = Activation('sigmoid')(Add()([note_axis_conv_sig[l](note_axis_out), style_sliced_tanh]))
+                # sig_out = Activation('sigmoid')(Add()([note_axis_conv_sig[l](note_axis_out), style_sliced_sig]))
+                # z = tanh(Wx + Vh) x sigmoid(Wx + Vh) from Wavenet
+                note_axis_out = Multiply()([tanh_out, sig_out])
+                note_axis_out = Dropout(dropout)(note_axis_out)
+
+                # Res conv connection
+                res_out = note_axis_out
+                # TODO: This seems like redundant.
+                # res_out = note_axis_conv_res[l](note_axis_out)
+
+                # Skip connection
+                skips.append(note_axis_conv_skip[l](note_axis_out))
+
+                # Residual connection
+                if l > 0:
+                    note_axis_out = Add()([res_out, prev_out])
+
+            # Merge all skip connections. Improves convergence and output.
+            note_axis_out = Add()(skips)
+
+            for l, units in enumerate(FINAL_UNITS):
+                note_axis_out = Activation('relu')(note_axis_out)
+                note_axis_out = note_axis_conv_final[l](note_axis_out)
+                note_axis_out = Dropout(dropout)(note_axis_out)
+
+            # Apply prediction layer
+            note_axis_out = prediction_layer(note_axis_out)
+            note_axis_out = Reshape((NUM_NOTES,))(note_axis_out)
+            note_axis_outs.append(note_axis_out)
+        out = Lambda(lambda x: tf.stack(x, axis=1))(note_axis_outs)
         return out
     return f
 
