@@ -268,10 +268,10 @@ def note_axis(dropout):
             note_axis_outs.append(note_axis_out)
 
         if len(note_axis_outs) == 1:
-            out = note_axis_outs[0]
+            out = Lambda(lambda x: tf.expand_dims(x, 1))(note_axis_outs[0])
         else:
             out = Lambda(lambda x: tf.stack(x, axis=1))(note_axis_outs)
-            
+
         return out
     return f
 
