@@ -3,8 +3,8 @@ import os
 
 # Define the musical styles
 styles = ['data/baroque', 'data/classical', 'data/romantic']
-#styles = ['data/edm', 'data/southern_rock', 'data/hard_rock']
-# styles = ['data/edm']
+# styles = ['data/all_classical']
+# styles = ['data/baroque']
 NUM_STYLES = len(styles)
 
 NUM_NOTES = MAX_NOTE - MIN_NOTE
@@ -17,7 +17,11 @@ TIME_STEPS = 16
 TIME_AXIS_UNITS = [256, 256]
 NOTE_AXIS_UNITS = [128, 128, 128, 128, 128, 128]
 FINAL_UNITS = [128, 128]
-STYLE_UNITS = 128
+
+STYLE_UNITS = 32
+BEAT_UNITS = 32
+NOTE_CONV_UNITS = 128
+PITCH_CLASS_UNITS = 32
 
 # Move file save location
 model_file = 'out/saves/model'

@@ -27,12 +27,19 @@ class MusicGeneration:
         self.default_temp = default_temp
         self.temperature = default_temp
 
-    def build_inputs(self):
+    def build_time_inputs(self):
         return (
             np.array(self.notes_memory),
-            np.array(list(self.notes_memory)[1:] + [self.next_note]),
             np.array(self.beat_memory),
             np.array(self.style_memory)
+        )
+
+    def build_note_inputs(self, note_features):
+        # Timesteps = 1 (No temporal dimension)
+        return (
+            np.array(note_features),
+            np.array([self.next_note]),
+            np.array(list(self.style_memory)[-1:])
         )
 
     def choose(self, prob, note_index):
@@ -74,24 +81,34 @@ def apply_temperature(prob, temperature):
         prob = 1 / (1 + np.exp(-x / temperature))
     return prob
 
-def generate(model, num_bars=32, styles=None):
+def process_inputs(ins):
+    ins = list(zip(*ins))
+    ins = [np.array(i) for i in ins]
+    return ins
+
+def generate(models, num_bars=16, styles=None):
     if styles is None:
         styles = all_styles()
 
     print('Generating with styles:', styles)
 
+    _, time_model, note_model = models
     generations = [MusicGeneration(style) for style in styles]
 
     for t in tqdm(range(NOTES_PER_BAR * num_bars)):
+        # Produce note-invariant features
+        ins = process_inputs([g.build_time_inputs() for g in generations])
+        # Pick only the last time step
+        note_features = time_model.predict(ins)
+        note_features = np.array(note_features)[:, -1:, :]
+
         # Generate each note conditioned on previous
         for n in range(NUM_NOTES):
-            ins = list(zip(*[g.build_inputs() for g in generations]))
-            ins = [np.array(i) for i in ins]
-
-            predictions = np.array(model.predict(ins))
+            ins = process_inputs([g.build_note_inputs(note_features[i, :, :, :]) for i, g in enumerate(generations)])
+            predictions = np.array(note_model.predict(ins))
 
             for i, g in enumerate(generations):
-                # We only care about the last time step
+                # Remove the temporal dimension
                 g.choose(predictions[i][-1], n)
 
         # Move one time step
