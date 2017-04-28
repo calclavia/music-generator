@@ -21,7 +21,7 @@ def sample_note(model, prev_note, beat, states, temperature=1, batch_size=1):
 
     ## Note Axis
     # The current note being generated
-    current_note = Variable(torch.zeros(batch_size, NUM_NOTES), volatile=True).cuda()
+    current_note = var(torch.zeros(batch_size, NUM_NOTES), volatile=True)
 
     for n in range(NUM_NOTES):
         prob = model.note_axis(note_features, current_note, temperature)
@@ -49,10 +49,10 @@ def generate(model, name='output', num_bars=8, prime=None):
     silent_time = NOTES_PER_BAR
 
     # Last generated note time step
-    prev_note = Variable(torch.zeros(NUM_NOTES), volatile=True).cuda().unsqueeze(0)
+    prev_note = var(torch.zeros(NUM_NOTES), volatile=True).unsqueeze(0)
 
     for t in trange(NOTES_PER_BAR * num_bars):
-        beat = Variable(to_torch(compute_beat(t, NOTES_PER_BAR)), volatile=True).cuda().unsqueeze(0)
+        beat = var(to_torch(compute_beat(t, NOTES_PER_BAR)), volatile=True).unsqueeze(0)
         current_note, states = sample_note(model, prev_note, beat, states, temperature=temperature)
 
         # Add note to note sequence
@@ -60,7 +60,7 @@ def generate(model, name='output', num_bars=8, prime=None):
 
         if prime:
             prev_note, *_ = next(prime)
-            prev_note = Variable(prev_note, volatile=True).cuda().unsqueeze(0)
+            prev_note = var(prev_note, volatile=True).unsqueeze(0)
         else:
             prev_note = current_note
 
@@ -104,7 +104,11 @@ def main():
     print('=== Loading Model ===')
     print('Path: {}'.format(args.path))
     print('GPU: {}'.format(torch.cuda.is_available()))
-    model = DeepJ().cuda()
+    model = DeepJ()
+    
+    if torch.cuda.is_available():
+        model.cuda()
+
     model.load_state_dict(torch.load(args.path))
 
     print('=== Generating ===')

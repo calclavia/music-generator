@@ -27,11 +27,11 @@ def get_all_files(paths, ext='.mid'):
 def to_torch(np_arr):
     return torch.from_numpy(np_arr).float()
 
-def var(tensor):
+def var(tensor, **kwargs):
     """
     Creates a Torch variable based on CUDA settings.
     """
     if torch.cuda.is_available():
-        return Variable(tensor).cuda()
+        return Variable(tensor, **kwargs).cuda()
     else:
-        return Variable(tensor)
+        return Variable(tensor, **kwargs)
