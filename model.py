@@ -34,7 +34,7 @@ class TimeAxis(nn.Module):
 
         self.input_dropout = nn.Dropout(0.2)
         self.dropout = nn.Dropout(0.5)
-        self.rnn = nn.LSTM(input_features, num_units, num_layers, dropout=0.5)
+        self.rnns = [nn.LSTMCell(input_features if i == 0 else num_units, num_units) for i in range(num_layers)]
         self.beat_proj = nn.Linear(NOTES_PER_BAR, BEAT_UNITS)
 
         # Constants
@@ -43,6 +43,9 @@ class TimeAxis(nn.Module):
         stack_vecs = [one_hot(i % OCTAVE, OCTAVE) for i in range(self.num_notes)]
         stack_vecs = np.array(stack_vecs)
         self.pitch_class = torch.from_numpy(stack_vecs).float().unsqueeze(0)
+
+        for i, rnn in enumerate(self.rnns):
+            self.add_module('rnn_' + str(i), rnn)
 
     def compute_chord_context(self, notes_in):
         # TODO: Convolution might make this obsolete.
@@ -102,8 +105,18 @@ class TimeAxis(nn.Module):
         features = torch.cat((pitch_pos, pitch_class, vicinity, chord_context, beat), 2)
 
         # Move all notes into batch dimension
-        features = features.view(1, -1, features.size(2))
-        out, states = self.rnn(features, states)
+        features = features.view(-1, features.size(2))
+
+        # Initialize hidden states
+        if not states:
+            states = [[var(torch.zeros(features.size(0), self.num_units)) for _ in range(2)] for _ in self.rnns]
+
+        out = features
+
+        for l, rnn in enumerate(self.rnns):
+            out, state = rnn(out, states[l])
+            states[l] = (out, state)
+            out = self.dropout(out)
 
         out = out.view(batch_size, self.num_notes, -1)
         return out, states
