@@ -114,9 +114,15 @@ class TimeAxis(nn.Module):
         out = features
 
         for l, rnn in enumerate(self.rnns):
+            prev_out = out
+
             out, state = rnn(out, states[l])
             states[l] = (out, state)
             out = self.dropout(out)
+
+            # Residual connection
+            if l > 0:
+                out = prev_out + out
 
         out = out.view(batch_size, self.num_notes, -1)
         return out, states
