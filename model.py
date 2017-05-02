@@ -54,9 +54,12 @@ def build_model(time_steps=SEQ_LEN, input_dropout=0.2, dropout=0.5):
     chosen = Dropout(input_dropout)(chosen_in)
     style = Dropout(input_dropout)(style_in)
 
+    # Distributed style representation
+    style = TimeDistributed(Dense(STYLE_UNITS))(style)
+    style = Dropout(input_dropout)(style)
+
     """ Time axis """
-    # TODO: Don't hardcode
-    note_octave = TimeDistributed(Conv1D(32, 2 * OCTAVE, padding='same'))(notes)
+    note_octave = TimeDistributed(Conv1D(OCTAVE_UNITS, 2 * OCTAVE, padding='same'))(notes)
     note_octave = Dropout(dropout)(note_octave)
 
     # Create features for every single note.
@@ -76,6 +79,13 @@ def build_model(time_steps=SEQ_LEN, input_dropout=0.2, dropout=0.5):
 
     # Apply LSTMs
     for l in range(TIME_AXIS_LAYERS):
+        if l > 0:
+            # Integrate style
+            style_proj = TimeDistributed(Dense(int(x.get_shape()[3])))(style)
+            style_proj = TimeDistributed(RepeatVector(NUM_NOTES))(style_proj)
+            style_proj = Permute((2, 1, 3))(style_proj)
+            x = Add()([x, style_proj])
+
         x = TimeDistributed(LSTM(TIME_AXIS_UNITS, return_sequences=True))(x)
         x = Dropout(dropout)(x)
 
@@ -92,6 +102,11 @@ def build_model(time_steps=SEQ_LEN, input_dropout=0.2, dropout=0.5):
     x = Concatenate(axis=3)([x, shift_chosen])
 
     for l in range(NOTE_AXIS_LAYERS):
+        # Integrate style
+        style_proj = TimeDistributed(Dense(int(x.get_shape()[3])))(style)
+        style_proj = TimeDistributed(RepeatVector(NUM_NOTES))(style_proj)
+        x = Add()([x, style_proj])
+
         x = TimeDistributed(LSTM(NOTE_AXIS_UNITS, return_sequences=True))(x)
         x = Dropout(dropout)(x)
 

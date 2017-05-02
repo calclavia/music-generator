@@ -1,5 +1,5 @@
 import tensorflow as tf
-from keras.callbacks import ModelCheckpoint, LambdaCallback, ReduceLROnPlateau
+from keras.callbacks import ModelCheckpoint, LambdaCallback
 from keras.callbacks import EarlyStopping, TensorBoard
 from collections import deque
 from tqdm import tqdm
@@ -46,8 +46,7 @@ def train(model, gen):
 
     cbs = [
         ModelCheckpoint(MODEL_FILE, monitor='loss', save_best_only=True),
-        ReduceLROnPlateau(monitor='loss', patience=3),
-        EarlyStopping(monitor='loss', patience=9),
+        EarlyStopping(monitor='loss', patience=5),
         TensorBoard(log_dir='out/logs', histogram_freq=1)
     ]
 
