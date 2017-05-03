@@ -11,7 +11,9 @@ from util import *
 from constants import *
 
 def primary_loss(y_true, y_pred):
-    return losses.binary_crossentropy(y_true, y_pred)
+    bce = losses.binary_crossentropy(y_true[:, :, :, :-1], y_pred[:, :, :, :-1])
+    mse = losses.mean_squared_error(y_true[:, :, :, -1:], y_pred[:, :, :, -1:])
+    return bce + mse
 
 def style_loss(y_true, y_pred):
     return 0.5 * losses.categorical_crossentropy(y_true, y_pred)
@@ -119,6 +121,8 @@ def build_model(time_steps=SEQ_LEN, input_dropout=0.2, dropout=0.5):
 
     # Primary task
     notes_out = Dense(2, activation='sigmoid', name='note_out')(x)
+    volume_out = Dense(1, name='volume_out')(x)
+    notes_out = Concatenate()([notes_out, volume_out])
 
     # Secondary task
     styles_out = Dense(STYLE_UNITS, activation='tanh')(x)
