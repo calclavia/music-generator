@@ -49,7 +49,7 @@ def pitch_bins_f(time_steps):
 
 def build_model(time_steps=SEQ_LEN, input_dropout=0.2, dropout=0.5):
     notes_in = Input((time_steps, NUM_NOTES, 2))
-    beat_in = Input((time_steps, 2))
+    beat_in = Input((time_steps, NOTES_PER_BAR))
     style_in = Input((time_steps, NUM_STYLES))
     # Target input for conditioning
     chosen_in = Input((time_steps, NUM_NOTES, 2))
@@ -64,11 +64,8 @@ def build_model(time_steps=SEQ_LEN, input_dropout=0.2, dropout=0.5):
     style = Dense(STYLE_UNITS)(style)
     style = Dropout(dropout)(style)
 
-    beat = Dense(BEAT_UNITS)(beat)
-    beat = Activation('tanh')(beat)
-    beat = Dropout(dropout)(beat)
-
     """ Time axis """
+    # TODO: Experiment with when to apply conv
     note_octave = TimeDistributed(Conv1D(OCTAVE_UNITS, 2 * OCTAVE, padding='same'))(notes)
     note_octave = Activation('tanh')(note_octave)
     note_octave = Dropout(dropout)(note_octave)
@@ -89,14 +86,22 @@ def build_model(time_steps=SEQ_LEN, input_dropout=0.2, dropout=0.5):
 
     # Apply LSTMs
     for l in range(TIME_AXIS_LAYERS):
+        prev = x
+
         # Integrate style
         style_proj = Dense(int(x.get_shape()[3]))(style)
+        style_proj = Activation('tanh')(style_proj)
+        style_proj = Dropout(dropout)(style_proj)
         style_proj = TimeDistributed(RepeatVector(NUM_NOTES))(style_proj)
         style_proj = Permute((2, 1, 3))(style_proj)
         x = Add()([x, style_proj])
 
         x = TimeDistributed(LSTM(TIME_AXIS_UNITS, return_sequences=True))(x)
         x = Dropout(dropout)(x)
+
+        # Residual connection
+        if l > 0:
+            x = Add()([x, prev])
 
     # [batch, time, notes, features]
     x = Permute((2, 1, 3))(x)
@@ -111,25 +116,26 @@ def build_model(time_steps=SEQ_LEN, input_dropout=0.2, dropout=0.5):
     x = Concatenate(axis=3)([x, shift_chosen])
 
     for l in range(NOTE_AXIS_LAYERS):
+        prev = x
+
         # Integrate style
         style_proj = Dense(int(x.get_shape()[3]))(style)
+        style_proj = Activation('tanh')(style_proj)
+        style_proj = Dropout(dropout)(style_proj)
         style_proj = TimeDistributed(RepeatVector(NUM_NOTES))(style_proj)
         x = Add()([x, style_proj])
 
         x = TimeDistributed(LSTM(NOTE_AXIS_UNITS, return_sequences=True))(x)
         x = Dropout(dropout)(x)
 
+        # Residual connection
+        if l > 0:
+            x = Add()([x, prev])
     # Primary task
     notes_out = Dense(2, activation='sigmoid', name='note_out')(x)
     volume_out = Dense(1, name='volume_out')(x)
     notes_out = Concatenate()([notes_out, volume_out])
 
-    # Secondary task
-    styles_out = Dense(STYLE_UNITS, activation='tanh')(x)
-    styles_out = Dropout(dropout)(styles_out)
-    styles_out = TimeDistributed(Flatten())(styles_out)
-    styles_out = Dense(NUM_STYLES, activation='softmax', name='style_out')(styles_out)
-
-    model = Model([notes_in, chosen_in, beat_in, style_in], [notes_out, styles_out])
-    model.compile(optimizer='nadam', loss=[primary_loss, style_loss])
+    model = Model([notes_in, chosen_in, beat_in, style_in], [notes_out])
+    model.compile(optimizer='nadam', loss=[primary_loss])
     return model

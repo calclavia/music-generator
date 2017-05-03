@@ -12,11 +12,7 @@ from midi_util import load_midi
 from util import chunk, get_all_files, one_hot
 
 def compute_beat(beat, notes_in_bar):
-    # TODO: Compare methods
-    # Angle method
-    angle = (beat % notes_in_bar) / notes_in_bar * 2 * math.pi
-    return np.array([math.cos(angle), math.sin(angle)])
-    # return one_hot(beat % notes_in_bar, notes_in_bar)
+    return one_hot(beat % notes_in_bar, notes_in_bar)
 
 def compute_completion(beat, len_melody):
     return np.array([beat / len_melody])
@@ -66,7 +62,8 @@ def load_all(styles, batch_size, time_steps):
     beat_data = np.array(beat_data)
     style_data = np.array(style_data)
     note_target = np.array(note_target)
-    return [note_data, note_target, beat_data, style_data], [note_target, style_data]
+    return [note_data, note_target, beat_data, style_data], [note_target]
+    # return [note_data, note_target, beat_data, style_data], [note_target, style_data]
 
 def clamp_midi(sequence):
     """
