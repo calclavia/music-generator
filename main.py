@@ -44,7 +44,7 @@ def train(model, gen):
             write_file(os.path.join(SAMPLES_DIR, 'epoch_{}.mid'.format(epoch)), generate(model))
 
     cbs = [
-        ModelCheckpoint(MODEL_FILE, monitor='loss', save_best_only=True),
+        ModelCheckpoint(MODEL_FILE, monitor='loss', save_best_only=True, save_weights_only=True),
         EarlyStopping(monitor='loss', patience=5),
         TensorBoard(log_dir='out/logs', histogram_freq=1)
     ]

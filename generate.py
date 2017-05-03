@@ -9,7 +9,7 @@ from midi_util import midi_encode
 
 def generate(model, style=[0.25, 0.25, 0.25, 0.25], num_bars=16, default_temp=1):
     print('Generating')
-    notes_memory = deque([np.zeros((NUM_NOTES, 2)) for _ in range(SEQ_LEN)], maxlen=SEQ_LEN)
+    notes_memory = deque([np.zeros((NUM_NOTES, 3)) for _ in range(SEQ_LEN)], maxlen=SEQ_LEN)
     beat_memory = deque([np.zeros_like(compute_beat(0, NOTES_PER_BAR)) for _ in range(SEQ_LEN)], maxlen=SEQ_LEN)
     style_memory = deque([style for _ in range(SEQ_LEN)], maxlen=SEQ_LEN)
 
@@ -18,7 +18,7 @@ def generate(model, style=[0.25, 0.25, 0.25, 0.25], num_bars=16, default_temp=1)
 
     for t in tqdm(range(NOTES_PER_BAR * num_bars)):
         # The next note being built.
-        next_note = np.zeros((NUM_NOTES, 2))
+        next_note = np.zeros((NUM_NOTES, 3))
 
         # Generate each note individually
         for n in range(NUM_NOTES):
@@ -33,17 +33,21 @@ def generate(model, style=[0.25, 0.25, 0.25, 0.25], num_bars=16, default_temp=1)
             pred = np.array(pred)
             # We only care about the last time step
             pred = pred[0, -1, :]
+            pred_probs = pred[n, :-1]
+            vol = pred[n, -1:]
 
             # Apply temperature
             if temperature != 1:
                 # Inverse sigmoid
-                x = -np.log(1 / np.array(pred) - 1)
+                x = -np.log(1 / np.array(pred_probs) - 1)
                 # Apply temperature to sigmoid function
-                pred = 1 / (1 + np.exp(-x / temperature))
+                pred_probs = 1 / (1 + np.exp(-x / temperature))
 
             # Flip notes randomly
             if np.random.random() <= pred[n, 0]:
                 next_note[n, 0] = 1
+                # Set volume
+                next_note[n, 2] = vol
 
                 if np.random.random() <= pred[n, 1]:
                     next_note[n, 1] = 1

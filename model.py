@@ -52,7 +52,7 @@ def build_model(time_steps=SEQ_LEN, input_dropout=0.2, dropout=0.5):
     beat_in = Input((time_steps, NOTES_PER_BAR))
     style_in = Input((time_steps, NUM_STYLES))
     # Target input for conditioning
-    chosen_in = Input((time_steps, NUM_NOTES, 2))
+    chosen_in = Input((time_steps, NUM_NOTES, 3))
 
     # Dropout inputs
     notes = Dropout(input_dropout)(notes_in)
