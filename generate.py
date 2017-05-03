@@ -7,7 +7,7 @@ from dataset import *
 from tqdm import tqdm
 from midi_util import midi_encode
 
-def generate(model, style=[0.25, 0.25, 0.25, 0.25], num_bars=16, default_temp=1):
+def generate(model, style=[0.2, 0.2, 0.2, 0.2, 0.2], num_bars=16, default_temp=1):
     print('Generating')
     notes_memory = deque([np.zeros((NUM_NOTES, 3)) for _ in range(SEQ_LEN)], maxlen=SEQ_LEN)
     beat_memory = deque([np.zeros_like(compute_beat(0, NOTES_PER_BAR)) for _ in range(SEQ_LEN)], maxlen=SEQ_LEN)
