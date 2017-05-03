@@ -223,14 +223,13 @@ def load_midi(fname):
 
     assert len(note_seq.shape) == 3, note_seq.shape
     assert note_seq.shape[1] == MIDI_MAX_NOTES, note_seq.shape
-    assert note_seq.shape[2] == 2, note_seq.shape
+    assert note_seq.shape[2] == 3, note_seq.shape
     assert (note_seq >= 0).all()
     assert (note_seq <= 1).all()
     return note_seq
 
 if __name__ == '__main__':
     # Test
-    # p = midi.read_midifile("out/test_in.mid")
-    p = midi.read_midifile("data/romantic/beethoven/beethoven_opus10_1.mid")
+    p = midi.read_midifile("out/test_in.mid")
     p = midi_encode(midi_decode(p))
     midi.write_midifile("out/test_out.mid", p)
