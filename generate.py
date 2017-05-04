@@ -33,8 +33,10 @@ def generate(model, style=[0.2, 0.2, 0.2, 0.2, 0.2], num_bars=16, default_temp=1
             pred = np.array(pred)
             # We only care about the last time step
             pred = pred[0, -1, :]
+            # Probabilities for note and replay (excluded volume)
             pred_probs = pred[n, :-1]
-            vol = pred[n, -1:]
+            # Min max camp to make sure vol is between 0 and 1
+            vol = pred[n, -1]
 
             # Apply temperature
             if temperature != 1:
@@ -44,12 +46,12 @@ def generate(model, style=[0.2, 0.2, 0.2, 0.2, 0.2], num_bars=16, default_temp=1
                 pred_probs = 1 / (1 + np.exp(-x / temperature))
 
             # Flip notes randomly
-            if np.random.random() <= pred[n, 0]:
+            if np.random.random() <= pred_probs[0]:
                 next_note[n, 0] = 1
                 # Set volume
                 next_note[n, 2] = vol
 
-                if np.random.random() <= pred[n, 1]:
+                if np.random.random() <= pred_probs[1]:
                     next_note[n, 1] = 1
 
         # Increase temperature while silent.

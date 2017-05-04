@@ -11,9 +11,12 @@ from util import *
 from constants import *
 
 def primary_loss(y_true, y_pred):
-    bce = losses.binary_crossentropy(y_true[:, :, :, :-1], y_pred[:, :, :, :-1])
-    mse = losses.mean_squared_error(y_true[:, :, :, -1:], y_pred[:, :, :, -1:])
-    return bce + mse
+    # 3 separate loss calculations based on if note is played or not
+    played = y_true[:, :, :, 0]
+    bce_note = losses.binary_crossentropy(y_true[:, :, :, 0], y_pred[:, :, :, 0])
+    bce_replay = losses.binary_crossentropy(y_true[:, :, :, 1], tf.multiply(played, y_pred[:, :, :, 1]) + tf.multiply(1 - played, y_true[:, :, :, 1]))
+    mse = losses.mean_squared_error(y_true[:, :, :, 2], tf.multiply(played, y_pred[:, :, :, 2]) + tf.multiply(1 - played, y_true[:, :, :, 2]))
+    return bce_note + bce_replay + mse
 
 def style_loss(y_true, y_pred):
     return 0.5 * losses.categorical_crossentropy(y_true, y_pred)
