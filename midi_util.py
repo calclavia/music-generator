@@ -136,8 +136,8 @@ def midi_decode(pattern,
                     replay_any = np.minimum(np.sum(replay_buffer[:-1], axis=0), 1)
                     replay_sequence.append(replay_any)
 
-                    # Determine volume on average
-                    volume_sum = np.sum(volume_buffer[:-1], axis=0) / step
+                    # Determine volume on majority
+                    volume_sum = np.round(np.sum(volume_buffer[:-1], axis=0) / step)
                     volume_sequence.append(volume_sum)
 
                     # Keep the last one (discard things in the middle)
