@@ -9,7 +9,7 @@ import multiprocessing
 
 from constants import *
 from midi_util import load_midi
-from util import chunk, get_all_files, one_hot
+from util import *
 
 def compute_beat(beat, notes_in_bar):
     return one_hot(beat % notes_in_bar, notes_in_bar)

@@ -13,35 +13,19 @@ from model import *
 
 def main():
     parser = argparse.ArgumentParser(description='Generates music.')
-    parser.add_argument('--train', default=False, action='store_true', help='Train model?')
     parser.add_argument('--gen', default=False, action='store_true', help='Generate after each epoch?')
     args = parser.parse_args()
 
-    model = build_or_load()
+    models = build_or_load()
+    train(models, args.gen)
 
-    if args.train:
-        train(model, args.gen)
-    else:
-        write_file(os.path.join(SAMPLES_DIR, 'output.mid'), generate(model))
-
-def build_or_load(allow_load=True):
-    model = build_model()
-    model.summary()
-    if allow_load:
-        try:
-            model.load_weights(MODEL_FILE)
-            print('Loaded model from file.')
-        except:
-            print('Unable to load model from file.')
-    return model
-
-def train(model, gen):
+def train(models, gen):
     print('Loading data')
     train_data, train_labels = load_all(styles, BATCH_SIZE, SEQ_LEN)
 
     def epoch_cb(epoch, _):
         if epoch % 10 == 0:
-            write_file(os.path.join(SAMPLES_DIR, 'epoch_{}.mid'.format(epoch)), generate(model))
+            write_file(os.path.join(SAMPLES_DIR, 'epoch_{}.mid'.format(epoch)), generate(models))
 
     cbs = [
         ModelCheckpoint(MODEL_FILE, monitor='loss', save_best_only=True, save_weights_only=True),
@@ -53,7 +37,7 @@ def train(model, gen):
         cbs += [LambdaCallback(on_epoch_end=epoch_cb)]
 
     print('Training')
-    model.fit(train_data, train_labels, epochs=1000, callbacks=cbs)
+    models[0].fit(train_data, train_labels, epochs=1000, callbacks=cbs, batch_size=BATCH_SIZE)
 
 if __name__ == '__main__':
     main()
