@@ -128,7 +128,7 @@ def midi_decode(pattern,
 
                 # Buffer & downscale sequence
                 if len(play_buffer) > step:
-                    # Determine based on majority
+                    # Determine based on rounded sum
                     notes_sum = np.round(np.sum(play_buffer[:-1], axis=0) / step)
                     play_sequence.append(notes_sum)
 
@@ -136,7 +136,7 @@ def midi_decode(pattern,
                     replay_any = np.minimum(np.sum(replay_buffer[:-1], axis=0), 1)
                     replay_sequence.append(replay_any)
 
-                    # Determine volume on majority
+                    # Determine volume on rounded sum
                     volume_sum = np.round(np.sum(volume_buffer[:-1], axis=0) / step)
                     volume_sequence.append(volume_sum)
 
