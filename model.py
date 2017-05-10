@@ -19,9 +19,6 @@ def primary_loss(y_true, y_pred):
     mse = losses.mean_squared_error(y_true[:, :, :, 2], tf.multiply(played, y_pred[:, :, :, 2]) + tf.multiply(1 - played, y_true[:, :, :, 2]))
     return bce_note + bce_replay + mse
 
-def style_loss(y_true, y_pred):
-    return 0.5 * losses.categorical_crossentropy(y_true, y_pred)
-
 def pitch_pos_in_f(time_steps):
     """
     Returns a constant containing pitch position of each note
@@ -96,7 +93,6 @@ def note_axis(dropout):
     lstm_layer_cache = {}
     note_dense = Dense(2, activation='sigmoid', name='note_dense')
     volume_dense = Dense(1, name='volume_dense')
-    # final_dense = Concatenate()([note_dense, volume_dense])
 
     def f(x, chosen, style):
         time_steps = int(x.get_shape()[1])
@@ -126,7 +122,6 @@ def note_axis(dropout):
             x = TimeDistributed(lstm_layer_cache[l])(x)
             x = Dropout(dropout)(x)
 
-        # Primary task
         return Concatenate()([note_dense(x), volume_dense(x)])
     return f
 
