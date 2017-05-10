@@ -4,8 +4,7 @@ Preprocesses MIDI files
 import numpy as np
 import math
 import random
-from joblib import Parallel, delayed
-import multiprocessing
+from tqdm import tqdm
 
 from constants import *
 from midi_util import load_midi
@@ -39,31 +38,42 @@ def load_all(styles, batch_size, time_steps):
 
     note_target = []
 
-    for style_id, style in enumerate(styles):
-        style_hot = one_hot(style_id, NUM_STYLES)
-        # Parallel process all files into a list of music sequences
-        seqs = Parallel(n_jobs=multiprocessing.cpu_count(), backend='threading')(delayed(load_midi)(f) for f in get_all_files([style]))
+    for genre_id in tqdm(range(len(genre))):
+        # Load each sub style, and also include a copy of it that is trained
+        # on the genre it belongs in.
 
-        for seq in seqs:
-            if len(seq) >= time_steps:
-                # Clamp MIDI to note range
-                seq = clamp_midi(seq)
-                # Create training data and labels
-                train_data, label_data = stagger(seq, time_steps)
-                note_data += train_data
-                note_target += label_data
+        # The genre hot vector
+        genre_hot = np.zeros((NUM_STYLES,))
+        start_index = sum(len(s) for i, s in enumerate(styles) if i < genre_id)
+        genre_hot[start_index:start_index + len(styles[genre_id])] = 1
 
-                beats = [compute_beat(i, NOTES_PER_BAR) for i in range(len(seq))]
-                beat_data += stagger(beats, time_steps)[0]
+        # Load each style in the genre
+        for style_id, style in tqdm(enumerate(styles[genre_id])):
+            style_hot = one_hot(start_index + style_id, NUM_STYLES)
+            seqs = [load_midi(f) for f in get_all_files([style])]
 
-                style_data += stagger([style_hot for i in range(len(seq))], time_steps)[0]
+            for seq in tqdm(seqs):
+                if len(seq) >= time_steps:
+                    # Clamp MIDI to note range
+                    seq = clamp_midi(seq)
+
+                    # Create training data and labels
+                    train_data, label_data = stagger(seq, time_steps)
+                    beats = [compute_beat(i, NOTES_PER_BAR) for i in range(len(seq))]
+                    beats = stagger(beats, time_steps)[0]
+                    genre_data = stagger([genre_hot for i in range(len(seq))], time_steps)[0]
+                    artist_data = stagger([style_hot for i in range(len(seq))], time_steps)[0]
+
+                    note_data += train_data * 2
+                    note_target += label_data * 2
+                    beat_data += beats * 2
+                    style_data += genre_data + artist_data
 
     note_data = np.array(note_data)
     beat_data = np.array(beat_data)
     style_data = np.array(style_data)
     note_target = np.array(note_target)
     return [note_data, note_target, beat_data, style_data], [note_target]
-    # return [note_data, note_target, beat_data, style_data], [note_target, style_data]
 
 def clamp_midi(sequence):
     """

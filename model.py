@@ -126,7 +126,7 @@ def note_axis(dropout):
     return f
 
 def style_layer(input_dropout):
-    emb = Dense(STYLE_UNITS)
+    emb = Dense(STYLE_UNITS, name='style')
     def f(style_in):
         style = emb(style_in)
         return Dropout(input_dropout)(style)

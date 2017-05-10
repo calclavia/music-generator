@@ -1,9 +1,18 @@
 import os
 
 # Define the musical styles
+genre = [
+    'data/baroque',
+    'data/classical',
+    'data/romantic'
+    'data/modern'
+]
+
 styles = [
     [
-        'data/baroque/bach'
+        'data/baroque/bach',
+        'data/baroque/handel',
+        'data/baroque/pachelbel'
     ],
     [
         'data/classical/burgmueller',
@@ -38,7 +47,7 @@ styles = [
     ]
 ]
 
-NUM_STYLES = len(styles)
+NUM_STYLES = sum(len(s) for s in styles)
 
 # MIDI Resolution
 DEFAULT_RES = 96
