@@ -48,11 +48,11 @@ def load_all(styles, batch_size, time_steps):
         genre_hot[start_index:start_index + len(styles[genre_id])] = 1
 
         # Load each style in the genre
-        for style_id, style in tqdm(enumerate(styles[genre_id])):
+        for style_id, style in enumerate(tqdm(styles[genre_id])):
             style_hot = one_hot(start_index + style_id, NUM_STYLES)
             seqs = [load_midi(f) for f in get_all_files([style])]
 
-            for seq in tqdm(seqs):
+            for seq in seqs:
                 if len(seq) >= time_steps:
                     # Clamp MIDI to note range
                     seq = clamp_midi(seq)
