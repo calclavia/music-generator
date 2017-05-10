@@ -10,7 +10,7 @@ from constants import *
 # http://projector.tensorflow.org/
 def main():
     models = build_or_load()
-    style_layer = models[0][0].get_layer('style')
+    style_layer = models[0].get_layer('style')
 
     print('Creating input')
     style_in = tf.placeholder(tf.float32, shape=(NUM_STYLES, NUM_STYLES))
@@ -25,7 +25,21 @@ def main():
     print('Writing to out directory')
     np.savetxt(os.path.join(OUT_DIR, 'style_embedding_vec.tsv'), embedding, delimiter='\t')
 
-    labels = np.reshape(np.array(styles), (-1, 1))
+    labels = [[g] * len(styles[i]) for i, g in enumerate(genre)]
+    # Flatten
+    labels = [y for x in labels for y in x]
+
+    # Retreive specific artists
+    styles_labels = [y for x in styles for y in x]
+
+    styles_labels = np.reshape(styles_labels, [-1, 1])
+    labels = np.reshape(labels, [-1, 1])
+    labels = np.hstack([labels, styles_labels])
+
+    # Add metadata header
+    header = ['Genre', 'Artist']
+    labels = np.vstack([header, labels])
+
     np.savetxt(os.path.join(OUT_DIR, 'style_embedding_labels.tsv'), labels, delimiter='\t', fmt='%s')
 
 if __name__ == '__main__':

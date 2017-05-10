@@ -2,10 +2,10 @@ import os
 
 # Define the musical styles
 genre = [
-    'data/baroque',
-    'data/classical',
-    'data/romantic'
-    'data/modern'
+    'baroque',
+    'classical',
+    'romantic',
+    'modern'
 ]
 
 styles = [

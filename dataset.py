@@ -52,6 +52,7 @@ def load_all(styles, batch_size, time_steps):
 
         # The genre hot vector
         genre_hot = compute_genre(genre_id)
+        start_index = sum(len(s) for i, s in enumerate(styles) if i < genre_id)
 
         # Load each style in the genre
         for style_id, style in enumerate(tqdm(styles[genre_id])):
