@@ -16,6 +16,15 @@ def compute_beat(beat, notes_in_bar):
 def compute_completion(beat, len_melody):
     return np.array([beat / len_melody])
 
+def compute_genre(genre_id):
+    """ Computes a vector that represents a particular genre """
+    genre_hot = np.zeros((NUM_STYLES,))
+    start_index = sum(len(s) for i, s in enumerate(styles) if i < genre_id)
+    # TODO: Normalize this!
+    styles_in_genre = len(styles[genre_id])
+    genre_hot[start_index:start_index + styles_in_genre] = 1
+    return genre_hot
+
 def stagger(data, time_steps):
     dataX, dataY = [], []
     # Buffer training for first event
@@ -43,9 +52,7 @@ def load_all(styles, batch_size, time_steps):
         # on the genre it belongs in.
 
         # The genre hot vector
-        genre_hot = np.zeros((NUM_STYLES,))
-        start_index = sum(len(s) for i, s in enumerate(styles) if i < genre_id)
-        genre_hot[start_index:start_index + len(styles[genre_id])] = 1
+        genre_hot = compute_genre(genre_id)
 
         # Load each style in the genre
         for style_id, style in enumerate(tqdm(styles[genre_id])):

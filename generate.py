@@ -95,7 +95,7 @@ def process_inputs(ins):
     ins = [np.array(i) for i in ins]
     return ins
 
-def generate(models, num_bars=32, styles=[[1,0,0,0,0], [0,1,0,0,0], [0,0,1,0,0], [0,0,0,1,0], [0,0,0,0,1]]):
+def generate(models, num_bars=32, styles=[compute_genre(i) for i in range(len(genre))]):
     print('Generating with styles:', styles)
 
     _, time_model, note_model = models
