@@ -71,7 +71,7 @@ NOTES_PER_BEAT = 4
 NOTES_PER_BAR = NOTES_PER_BEAT * BEATS_PER_BAR
 
 # Training parameters
-BATCH_SIZE = 8
+BATCH_SIZE = 10
 SEQ_LEN = 8 * NOTES_PER_BAR
 
 # Hyper Parameters
