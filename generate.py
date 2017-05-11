@@ -134,9 +134,8 @@ def write_file(name, results):
         midi.write_midifile(fpath, mf)
 
 def main():
-    with tf.device('cpu:0'):
-        models = build_or_load()
-        write_file('output', generate(models))
+    models = build_or_load()
+    write_file('output', generate(models))
 
 if __name__ == '__main__':
     main()
