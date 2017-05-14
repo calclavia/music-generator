@@ -12,7 +12,7 @@ from midi_util import midi_encode
 from model import *
 
 def main():
-    parser = argparse.ArgumentParser(description='Generates music.')
+    parser = argparse.ArgumentParser(description='Trains model.')
     parser.add_argument('--gen', default=False, action='store_true', help='Generate after each epoch?')
     args = parser.parse_args()
 

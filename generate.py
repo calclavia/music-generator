@@ -95,7 +95,7 @@ def process_inputs(ins):
     ins = [np.array(i) for i in ins]
     return ins
 
-def generate(models, num_bars=32, styles=[compute_genre(i) for i in range(len(genre))]):
+def generate(models, num_bars, styles=[compute_genre(i) for i in range(len(genre))]):
     print('Generating with styles:', styles)
 
     _, time_model, note_model = models
@@ -134,8 +134,12 @@ def write_file(name, results):
         midi.write_midifile(fpath, mf)
 
 def main():
+    parser = argparse.ArgumentParser(description='Generates music.')
+    parser.add_argument('--bars', default=32, type=int, help='Number of bars to generate')
+    args = parser.parse_args()
+
     models = build_or_load()
-    write_file('output', generate(models))
+    write_file('output', generate(models, args.bars))
 
 if __name__ == '__main__':
     main()
