@@ -16,8 +16,8 @@ def primary_loss(y_true, y_pred):
     played = y_true[:, :, :, 0]
     bce_note = losses.binary_crossentropy(y_true[:, :, :, 0], y_pred[:, :, :, 0])
     bce_replay = losses.binary_crossentropy(y_true[:, :, :, 1], tf.multiply(played, y_pred[:, :, :, 1]) + tf.multiply(1 - played, y_true[:, :, :, 1]))
-    bce_volume = losses.binary_crossentropy(y_true[:, :, :, 2], tf.multiply(played, y_pred[:, :, :, 2]) + tf.multiply(1 - played, y_true[:, :, :, 2]))
-    return bce_note + bce_replay + bce_volume
+    mse_volume = losses.mean_squared_error(y_true[:, :, :, 2], tf.multiply(played, y_pred[:, :, :, 2]) + tf.multiply(1 - played, y_true[:, :, :, 2]))
+    return bce_note + bce_replay + mse_volume
 
 def pitch_pos_in_f(time_steps):
     """
@@ -98,7 +98,7 @@ def note_axis(dropout):
     dense_layer_cache = {}
     lstm_layer_cache = {}
     note_dense = Dense(2, activation='sigmoid', name='note_dense')
-    volume_dense = Dense(1, activation='sigmoid', name='volume_dense')
+    volume_dense = Dense(1, activation='linear', name='volume_dense')
 
     def f(x, chosen, style):
         time_steps = int(x.get_shape()[1])
