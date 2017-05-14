@@ -129,7 +129,7 @@ def midi_decode(pattern,
                     replay_sequence.append(replay_any)
 
                     # Determine volume on rounded sum
-                    volume_sum = np.round(np.sum(volume_buffer[:-1], axis=0) / step)
+                    volume_sum = np.amax(volume_buffer[:-1], axis=0)
                     volume_sequence.append(volume_sum)
 
                     # Keep the last one (discard things in the middle)
@@ -212,6 +212,6 @@ def load_midi(fname):
 if __name__ == '__main__':
     # Test
     # p = midi.read_midifile("out/test_in.mid")
-    p = midi.read_midifile("data/baroque/bach/0864_01.mid")
+    p = midi.read_midifile("out/test_in.mid")
     p = midi_encode(midi_decode(p))
     midi.write_midifile("out/test_out.mid", p)
