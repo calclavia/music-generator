@@ -18,11 +18,11 @@ styles = [
         'data/classical/burgmueller',
         'data/classical/clementi',
         'data/classical/haydn',
+        'data/classical/beethoven',
         'data/classical/mozart'
     ],
     [
         'data/romantic/balakirew',
-        'data/romantic/beethoven',
         'data/romantic/borodin',
         'data/romantic/brahms',
         'data/romantic/chopin',
@@ -43,6 +43,9 @@ styles = [
         'data/modern/granados',
         'data/modern/grieg',
         'data/modern/ravel',
+        'data/modern/copland',
+        'data/modern/hindesmith',
+        'data/modern/stravinsky',
         'data/modern/sinding'
     ]
 ]
@@ -71,7 +74,7 @@ NOTES_PER_BEAT = 4
 NOTES_PER_BAR = NOTES_PER_BEAT * BEATS_PER_BAR
 
 # Training parameters
-BATCH_SIZE = 10
+BATCH_SIZE = 12
 SEQ_LEN = 8 * NOTES_PER_BAR
 
 # Hyper Parameters
