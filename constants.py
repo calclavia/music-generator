@@ -11,47 +11,19 @@ genre = [
 
 styles = [
     [
-        'data/baroque/bach',
-        'data/baroque/handel',
-        'data/baroque/pachelbel'
+        'data/baroque'
     ],
     [
-        'data/classical/burgmueller',
-        'data/classical/clementi',
-        'data/classical/haydn',
-        'data/classical/beethoven',
-        'data/classical/mozart'
+        'data/classical'
     ],
     [
-        'data/romantic/balakirew',
-        'data/romantic/borodin',
-        'data/romantic/brahms',
-        'data/romantic/chopin',
-        'data/romantic/debussy',
-        'data/romantic/liszt',
-        'data/romantic/mendelssohn',
-        'data/romantic/moszkowski',
-        'data/romantic/mussorgsky',
-        'data/romantic/rachmaninov',
-        'data/romantic/schubert',
-        'data/romantic/schumann',
-        'data/romantic/tchaikovsky',
-        'data/romantic/tschai'
+        'data/romantic'
     ],
     [
-        'data/modern/albeniz',
-        'data/modern/godowsky',
-        'data/modern/granados',
-        'data/modern/grieg',
-        'data/modern/ravel',
-        'data/modern/copland',
-        'data/modern/hindesmith',
-        'data/modern/stravinsky',
-        'data/modern/sinding'
+        'data/modern'
     ],
     [
-        'data/jazz/billevans',
-        'data/jazz/other'
+        'data/jazz'
     ]
 ]
 
