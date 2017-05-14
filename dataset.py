@@ -6,6 +6,7 @@ import math
 import random
 from joblib import Parallel, delayed
 import multiprocessing
+from tqdm import tqdm
 
 from constants import *
 from midi_util import load_midi
@@ -16,6 +17,14 @@ def compute_beat(beat, notes_in_bar):
 
 def compute_completion(beat, len_melody):
     return np.array([beat / len_melody])
+
+def compute_genre(genre_id):
+    """ Computes a vector that represents a particular genre """
+    genre_hot = np.zeros((NUM_STYLES,))
+    start_index = sum(len(s) for i, s in enumerate(styles) if i < genre_id)
+    styles_in_genre = len(styles[genre_id])
+    genre_hot[start_index:start_index + styles_in_genre] = 1 / styles_in_genre
+    return genre_hot
 
 def stagger(data, time_steps):
     dataX, dataY = [], []
@@ -38,6 +47,8 @@ def load_all(styles, batch_size, time_steps):
     style_data = []
 
     note_target = []
+
+    styles = [y for x in styles for y in x]
 
     for style_id, style in enumerate(styles):
         style_hot = one_hot(style_id, NUM_STYLES)
@@ -63,7 +74,6 @@ def load_all(styles, batch_size, time_steps):
     style_data = np.array(style_data)
     note_target = np.array(note_target)
     return [note_data, note_target, beat_data, style_data], [note_target]
-    # return [note_data, note_target, beat_data, style_data], [note_target, style_data]
 
 def clamp_midi(sequence):
     """
