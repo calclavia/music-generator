@@ -6,6 +6,8 @@ NUM_NOTES = 128
 TIME_QUANTIZATION = 32
 # Exponential representation of time shifts
 TICK_EXP = 1.3
+# The number of ticks represented in each bin
+TICK_BINS = [int(TICK_EXP ** x + x) for x in range(TIME_QUANTIZATION)]
 # Standard ticks per beat DeepJ uses
 TICKS_PER_BEAT = 480
 # Number of velocity buns

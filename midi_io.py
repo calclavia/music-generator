@@ -30,10 +30,9 @@ class TrackBuilder():
             self.last_velocity = (evt - VEL_OFFSET) * (MIDI_VELOCITY // VEL_QUANTIZATION)
         elif evt >= TIME_OFFSET:
             # Shifting forward in time
-            exponent = evt - TIME_OFFSET
-            assert exponent >= 0 and exponent < TIME_QUANTIZATION
-            tick_shift = int(TICK_EXP ** exponent)
-            self.delta_time += tick_shift
+            tick_bin = evt - TIME_OFFSET
+            assert tick_bin >= 0 and tick_bin < TIME_QUANTIZATION
+            self.delta_time += TICK_BINS[tick_bin]
         elif evt >= NOTE_OFF_OFFSET:
             # Turning a note off
             note = evt - NOTE_OFF_OFFSET
@@ -93,11 +92,11 @@ def midi_to_seq(midi_file, track):
             # Add in seconds
             while standard_ticks >= 1:
                 # Find the largest bin to put this time in
-                exponent = min(int(math.log(standard_ticks, TICK_EXP)), TIME_QUANTIZATION - 1)
-                evt_index = TIME_OFFSET + exponent
-                assert evt_index >= TIME_OFFSET and evt_index < VEL_OFFSET, (standard_ticks, exponent)
+                tick_bin = find_tick_bin(standard_ticks)
+                evt_index = TIME_OFFSET + tick_bin
+                assert evt_index >= TIME_OFFSET and evt_index < VEL_OFFSET, (standard_ticks, tick_bin)
                 events.append(evt_index)
-                standard_ticks -= TICK_EXP ** exponent
+                standard_ticks -= TICK_BINS[tick_bin]
 
         # Ignore meta messages
         if msg.is_meta:
@@ -127,7 +126,6 @@ def midi_to_seq(midi_file, track):
 def load_midi(fname):
     cache_path = os.path.join(CACHE_DIR, fname + '.npy')
     try:
-        raise 'test'
         seq = np.load(cache_path)
     except Exception as e:
         # Load

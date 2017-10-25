@@ -32,7 +32,7 @@ def load(styles=STYLES):
                 style_seq.append(torch.from_numpy(seq).long())
                 seq_len_sum += len(seq)
             except Exception as e:
-                print('Unable to load {}'.format(f))
+                print('Unable to load {}'.format(f), e)
         
         style_seqs.append(style_seq)
         print('Loading {} MIDI file(s) with average event count {}'.format(len(style_seq), seq_len_sum / len(style_seq)))
