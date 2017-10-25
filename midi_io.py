@@ -2,13 +2,11 @@
 Handles MIDI file loading
 """
 import mido
+import math
 import numpy as np
 import os
 from constants import *
 from util import *
-
-# TODO: Handle custom tempo?
-tempo = mido.bpm2tempo(120)
 
 class TrackBuilder():
     def __init__(self, event_seq):
@@ -16,7 +14,7 @@ class TrackBuilder():
         
         self.last_velocity = 0
         self.delta_time = 0
-        self.tempo = tempo
+        self.tempo = mido.bpm2tempo(120)
         
         self.reset()
     
@@ -32,10 +30,10 @@ class TrackBuilder():
             self.last_velocity = (evt - VEL_OFFSET) * (MIDI_VELOCITY // VEL_QUANTIZATION)
         elif evt >= TIME_OFFSET:
             # Shifting forward in time
-            quantized_time_shift = evt - TIME_OFFSET + 1
-            assert quantized_time_shift >= 1 and quantized_time_shift <= TIME_QUANTIZATION
-            time_shift = quantized_time_shift / TIME_QUANTIZATION * MAX_TIME_SHIFT
-            self.delta_time += int(mido.second2tick(time_shift, self.midi_file.ticks_per_beat, self.tempo))
+            exponent = evt - TIME_OFFSET
+            assert exponent >= 0 and exponent < TIME_QUANTIZATION
+            tick_shift = int(TICK_EXP ** exponent)
+            self.delta_time += tick_shift
         elif evt >= NOTE_OFF_OFFSET:
             # Turning a note off
             note = evt - NOTE_OFF_OFFSET
@@ -50,6 +48,7 @@ class TrackBuilder():
     def reset(self):
         self.midi_file = mido.MidiFile()
         self.track = mido.MidiTrack()
+        self.midi_file.ticks_per_beat = TICKS_PER_BEAT
         self.track.append(mido.MetaMessage('set_tempo', tempo=self.tempo))
     
     def export(self):
@@ -83,23 +82,22 @@ def midi_to_seq(midi_file, track):
     """
     events = []
     last_velocity = None
-
-    for msg in track:        
+    
+    for msg in track:
         event_type = msg.type
         
         # Parse delta time
         if msg.time != 0:
-            time_in_sec = mido.tick2second(msg.time, midi_file.ticks_per_beat, tempo)
-            # Delta time, in quantized units
-            quantized_time = round(time_in_sec / MAX_TIME_SHIFT * TIME_QUANTIZATION)
+            standard_ticks = (msg.time / midi_file.ticks_per_beat) * TICKS_PER_BEAT
 
             # Add in seconds
-            while quantized_time > 0:
-                time_add = min(quantized_time, TIME_QUANTIZATION)
-                evt_index = TIME_OFFSET + time_add - 1
-                assert evt_index >= TIME_OFFSET and evt_index < VEL_OFFSET
+            while standard_ticks >= 1:
+                # Find the largest bin to put this time in
+                exponent = min(int(math.log(standard_ticks, TICK_EXP)), TIME_QUANTIZATION - 1)
+                evt_index = TIME_OFFSET + exponent
+                assert evt_index >= TIME_OFFSET and evt_index < VEL_OFFSET, (standard_ticks, exponent)
                 events.append(evt_index)
-                quantized_time -= time_add
+                standard_ticks -= TICK_EXP ** exponent
 
         # Ignore meta messages
         if msg.is_meta:
@@ -129,6 +127,7 @@ def midi_to_seq(midi_file, track):
 def load_midi(fname):
     cache_path = os.path.join(CACHE_DIR, fname + '.npy')
     try:
+        raise 'test'
         seq = np.load(cache_path)
     except Exception as e:
         # Load
@@ -168,5 +167,5 @@ if __name__ == '__main__':
     plt.hist(seq, NUM_ACTIONS)
     plt.grid(True)
     plt.show()
-    print(seq)
+    print('Sequence Length', len(seq))
     save_midi('midi_test', seq)
