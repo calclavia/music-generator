@@ -3,13 +3,13 @@ MIDI_VELOCITY = 128
 # Number of possible notes
 NUM_NOTES = 128
 # Number of time shift quantizations
-TIME_QUANTIZATION = 32
+TIME_QUANTIZATION = 64
 # Exponential representation of time shifts
-TICK_EXP = 1.3
+TICK_EXP = 1.115
 # The number of ticks represented in each bin
 TICK_BINS = [int(TICK_EXP ** x + x) for x in range(TIME_QUANTIZATION)]
-# Standard ticks per beat DeepJ uses
-TICKS_PER_BEAT = 480
+# Ticks per second
+TICKS_PER_SEC = 1000
 # Number of velocity buns
 VEL_QUANTIZATION = 32
 

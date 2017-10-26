@@ -32,7 +32,8 @@ class TrackBuilder():
             # Shifting forward in time
             tick_bin = evt - TIME_OFFSET
             assert tick_bin >= 0 and tick_bin < TIME_QUANTIZATION
-            self.delta_time += TICK_BINS[tick_bin]
+            seconds = TICK_BINS[tick_bin] / TICKS_PER_SEC
+            self.delta_time += int(mido.second2tick(seconds, self.midi_file.ticks_per_beat, self.tempo))
         elif evt >= NOTE_OFF_OFFSET:
             # Turning a note off
             note = evt - NOTE_OFF_OFFSET
@@ -47,18 +48,12 @@ class TrackBuilder():
     def reset(self):
         self.midi_file = mido.MidiFile()
         self.track = mido.MidiTrack()
-        self.midi_file.ticks_per_beat = TICKS_PER_BEAT
         self.track.append(mido.MetaMessage('set_tempo', tempo=self.tempo))
     
     def export(self):
         """
         Export buffer track to MIDI file
         """
-        # Turn all notes off
-        # for note in range(NUM_NOTES):
-        #   self.track.append(mido.Message('note_off', note=note, time=0))
-
-        # self.track.append(mido.Message('note_off', note=note, time=int(mido.second2tick(2, self.midi_file.ticks_per_beat, self.tempo))))
         self.midi_file.tracks.append(self.track)
         return_file = self.midi_file
         self.reset()
@@ -80,6 +75,7 @@ def midi_to_seq(midi_file, track):
     Converts a MIDO track object into an event sequence
     """
     events = []
+    tempo = None
     last_velocity = None
     
     for msg in track:
@@ -87,7 +83,8 @@ def midi_to_seq(midi_file, track):
         
         # Parse delta time
         if msg.time != 0:
-            standard_ticks = (msg.time / midi_file.ticks_per_beat) * TICKS_PER_BEAT
+            seconds = mido.tick2second(msg.time, midi_file.ticks_per_beat, tempo)
+            standard_ticks = round(seconds * TICKS_PER_SEC)
 
             # Add in seconds
             while standard_ticks >= 1:
@@ -100,6 +97,9 @@ def midi_to_seq(midi_file, track):
 
         # Ignore meta messages
         if msg.is_meta:
+            if msg.type == 'set_tempo':
+                # Handle tempo setting
+                tempo = msg.tempo
             continue
 
         # Ignore control changes
