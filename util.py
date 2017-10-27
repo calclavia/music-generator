@@ -5,11 +5,14 @@ from torch.autograd import Variable
 from constants import *
 
 def find_tick_bin(ticks):
+    """
+    Returns the tick bin this belongs to, or None if the number of ticks is too little
+    """
     for b, bin_ticks in enumerate(reversed(TICK_BINS)):
         if ticks >= bin_ticks:
             return len(TICK_BINS) - 1 - b
     
-    raise 'Invalid ticks {}'.format(ticks)
+    return None
 
 def batch_sample(probabilities):
     """

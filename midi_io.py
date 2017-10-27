@@ -90,6 +90,10 @@ def midi_to_seq(midi_file, track):
             while standard_ticks >= 1:
                 # Find the largest bin to put this time in
                 tick_bin = find_tick_bin(standard_ticks)
+
+                if tick_bin is None:
+                    break
+
                 evt_index = TIME_OFFSET + tick_bin
                 assert evt_index >= TIME_OFFSET and evt_index < VEL_OFFSET, (standard_ticks, tick_bin)
                 events.append(evt_index)
