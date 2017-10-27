@@ -29,8 +29,11 @@ def load(styles=STYLES):
             try:
                 # Pad the sequence by an empty event
                 seq = load_midi(f)
-                style_seq.append(torch.from_numpy(seq).long())
-                seq_len_sum += len(seq)
+                if len(seq) >= SEQ_LEN:
+                    style_seq.append(torch.from_numpy(seq).long())
+                    seq_len_sum += len(seq)
+                else:
+                    print('Ignoring {} because it is too short {}.'.format(f, len(seq)))
             except Exception as e:
                 print('Unable to load {}'.format(f), e)
         
@@ -47,37 +50,32 @@ def process(style_seqs, seq_len=SEQ_LEN):
     style_tags = torch.LongTensor([s for s, y in enumerate(style_seqs) for x in y])
     return seqs, style_tags
 
-def validation_split(it_list, split=0.1):
+def validation_split(data, split=0.1):
     """
     Splits the data iteration list into training and validation indices
     """
-    # Shuffle data
-    random.shuffle(it_list)
+    seqs, style_tags = data
 
-    num_val = int(math.ceil(len(it_list) * split))
-    training_indicies = it_list[:-num_val]
-    validation_indicies = it_list[-num_val:]
+    # Shuffle sequences randomly
+    r = list(range(len(seqs)))
+    random.shuffle(r)
 
-    assert len(validation_indicies) == num_val
-    assert len(training_indicies) == len(it_list) - num_val
-    return training_indicies, validation_indicies
+    num_val = int(math.ceil(len(r) * split))
+    train_indicies = r[:-num_val]
+    val_indicies = r[-num_val:]
 
-def iteration_indices(data, seq_len=SEQ_LEN):
-    """
-    Returns a list of tuple, which are the iteration indices.
-    """
-    seqs, *_ = data
+    assert len(val_indicies) == num_val
+    assert len(train_indicies) == len(r) - num_val
 
-    # List of composition and their sequence start indices
-    it_list = []
+    train_seqs = [seqs[i] for i in train_indicies]
+    val_seqs = [seqs[i] for i in val_indicies]
 
-    for c, seq in enumerate(seqs):
-        for t in range(0, len(seq) - 1 - seq_len, SEQ_SPLIT):
-            it_list.append((c, t))
+    train_style_tags = [style_tags[i] for i in train_indicies]
+    val_style_tags = [style_tags[i] for i in val_indicies]
+    
+    return (train_seqs, train_style_tags), (val_seqs, val_style_tags)
 
-    return it_list
-
-def sampler(data, it_list, seq_len=SEQ_LEN):
+def sampler(data, seq_len=SEQ_LEN):
     """
     Generates sequences of data.
     """
@@ -86,14 +84,15 @@ def sampler(data, it_list, seq_len=SEQ_LEN):
     if len(seqs) == 0:
         raise 'Insufficient training data.'
 
-    # A list of iteration indices that specify the iteration order
-    it_shuffled = random.sample(it_list, len(it_list))
+    # Shuffle sequences randomly
+    r = list(range(len(seqs)))
+    random.shuffle(r)
 
-    for seq_id, t in it_shuffled:
+    for seq_id in r:
         yield (
-            augment(seqs[seq_id][t:t+seq_len]),
-            # Need to retain the tensor object
-            style_tags[seq_id:seq_id+1]
+            augment(random_subseq(seqs[seq_id], seq_len)),
+            # Need to retain the tensor object. Hence slicing is used.
+            torch.LongTensor(style_tags[seq_id:seq_id+1])
         )
 
 def batcher(sampler, batch_size=BATCH_SIZE):
@@ -125,6 +124,11 @@ def data_it(data, seq_len=SEQ_LEN):
 
         for t in range(0, len(note_seq)):
             yield (note_seq[t], style_tag)
+
+def random_subseq(sequence, seq_len):
+    """ Randomly creates a subsequence from the sequence """
+    index = random.randint(0, len(sequence) - seq_len - 2)
+    return sequence[index:index + seq_len]
 
 def augment(sequence):
     """

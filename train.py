@@ -13,6 +13,7 @@ from constants import *
 from util import *
 from model import DeepJ
 from generate import Generation
+from midi_io import save_midi
 
 ce_loss = nn.CrossEntropyLoss()
 
@@ -41,22 +42,24 @@ def train(model, train_generator, train_len, val_generator, val_len, plot=True, 
         step = 1
         total_loss = 0
 
-        t_gen = train_generator()
 
         with tqdm(total=train_len) as t:
             t.set_description('Epoch {}'.format(epoch))
+            
+            for _ in range(TRAIN_CYCLES):
+                t_gen = train_generator()
 
-            for data in t_gen:
-                teach_prob = max(MIN_SCHEDULE_PROB, 1 - SCHEDULE_RATE * total_step)
-                loss = train_step(model, data, teach_prob)
+                for data in t_gen:
+                    teach_prob = max(MIN_SCHEDULE_PROB, 1 - SCHEDULE_RATE * total_step)
+                    loss = train_step(model, data, teach_prob)
 
-                total_loss += loss
-                avg_loss = total_loss / step
-                t.set_postfix(loss=avg_loss, prob=teach_prob)
-                t.update(BATCH_SIZE)
+                    total_loss += loss
+                    avg_loss = total_loss / step
+                    t.set_postfix(loss=avg_loss, prob=teach_prob)
+                    t.update(BATCH_SIZE)
 
-                step += 1
-                total_step += 1
+                    step += 1
+                    total_step += 1
 
         train_losses.append(avg_loss)
 
@@ -186,22 +189,22 @@ def main():
     data = process(load())
     print()
     print('Creating data generators...')
-    train_ind, val_ind = validation_split(iteration_indices(data))
-    train_generator = lambda: batcher(sampler(data, train_ind))
-    val_generator = lambda: batcher(sampler(data, val_ind))
+    train_data, val_data = validation_split(data)
+    train_generator = lambda: batcher(sampler(train_data))
+    val_generator = lambda: batcher(sampler(val_data))
 
     """
     # Checks if training data sounds right.
     for i, (train_seq, *_) in enumerate(train_generator()):
-        write_file('train_seq_{}'.format(i), train_seq[0].cpu().data.numpy())
+        save_midi('train_seq_{}'.format(i), train_seq[0].cpu().numpy())
     """
 
-    print('Training:', len(train_ind), 'Validation:', len(val_ind))
+    print('Training Sequences:', len(train_data[0]), 'Validation Sequences:', len(val_data[0]))
     print()
 
     print('=== Training ===')
-    train(model, train_generator, len(train_ind), val_generator, \
-         len(val_ind), plot=not args.noplot, gen_rate=args.gen)
+    train(model, train_generator, len(train_data[0]) * TRAIN_CYCLES, val_generator, \
+         len(val_data[0]), plot=not args.noplot, gen_rate=args.gen)
 
 if __name__ == '__main__':
     main()

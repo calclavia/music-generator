@@ -21,12 +21,12 @@ NUM_ACTIONS = VEL_OFFSET + VEL_QUANTIZATION
 
 # Trainin Parameters
 BATCH_SIZE = 64
-SEQ_LEN = 512
-# The higher this parameter, the less overlap in sequence data
-SEQ_SPLIT = SEQ_LEN // 8
+SEQ_LEN = 1024
 # Maximum silence time in seconds
 SILENT_LENGTH = 3
 GRADIENT_CLIP = 3
+# The number of train generator cycles per epoch
+TRAIN_CYCLES = 30
 
 # Sampling schedule decay
 SCHEDULE_RATE = 0#1e-4
