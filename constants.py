@@ -23,7 +23,7 @@ NUM_ACTIONS = VEL_OFFSET + VEL_QUANTIZATION
 BATCH_SIZE = 64
 SEQ_LEN = 512
 # The higher this parameter, the less overlap in sequence data
-SEQ_SPLIT = SEQ_LEN // 2
+SEQ_SPLIT = SEQ_LEN // 8
 # Maximum silence time in seconds
 SILENT_LENGTH = 3
 GRADIENT_CLIP = 3
