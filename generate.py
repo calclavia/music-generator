@@ -1,5 +1,6 @@
 import numpy as np
 import argparse
+import heapq
 
 import torch
 import torch.nn as nn
@@ -17,8 +18,10 @@ class Generation():
     Represents a music generation sequence
     """
 
-    def __init__(self, model, style=None, primer=None, default_temp=1):
+    def __init__(self, model, style=None, primer=None, default_temp=1, beam_size=1):
         self.model = model
+
+        self.beam_size = beam_size
 
         # Pick a random style
         self.style = style if style is not None else one_hot(np.random.randint(0, NUM_STYLES), NUM_STYLES)
@@ -30,24 +33,47 @@ class Generation():
         self.silent_time = SILENT_LENGTH
 
         # Model parametrs
-        self.prev_out = var(torch.zeros((1, NUM_ACTIONS)), volatile=True)
-        self.states = None
+        self.beam = [
+            (1, tuple(), None)
+        ]
+        self.avg_seq_prob = 1
+        self.step_count = 0
 
-    def __iter__(self):
-        return self
-
-    def __next__(self):
+    def step(self):
         """
-        Generates the next event
+        Generates the next set of beams
         """
         # Create variables
         style = var(to_torch(self.style), volatile=True)
-        output, new_state = self.model.generate(self.prev_out, style, self.states, temperature=self.temperature)
-        event = output[0]
-        # Add note to note sequence
-        self.states = new_state
-        self.prev_out = var(to_torch(one_hot(event, NUM_ACTIONS)), volatile=True)
 
+        new_beam = []
+        sum_seq_prob = 0
+
+        # Iterate through the beam
+        for prev_prob, evts, state in self.beam:
+            if len(evts) > 0:
+                prev_event = var(to_torch(one_hot(evts[-1], NUM_ACTIONS)), volatile=True)
+            else:
+                prev_event = var(torch.zeros((1, NUM_ACTIONS)), volatile=True)
+
+            probs, new_state = self.model.generate(prev_event, style, state, temperature=self.temperature)
+            probs = probs.cpu().data.numpy()
+
+            for _ in range(self.beam_size):
+                # Sample action
+                output = batch_sample(probs)
+                # output = np.argmax(probs, axis=1)
+                event = output[0]
+                
+                # Create next beam
+                seq_prob = prev_prob * probs[0, event]
+                new_beam.append((seq_prob / self.avg_seq_prob, evts + (event,), new_state))
+                sum_seq_prob += seq_prob
+
+        self.avg_seq_prob = sum_seq_prob / len(new_beam)
+        # Find the top most probable sequences
+        self.beam = heapq.nlargest(self.beam_size, new_beam, key=lambda x: x[0])
+        self.step_count += 1
         """
         # Increase temperature if silent
         index = np.argmax(output)
@@ -63,12 +89,17 @@ class Generation():
             self.silent_time = 0
             self.temperature = self.default_temp
         """
-        return event
 
     def generate(self, seq_len=200, show_progress=True):
-        if show_progress:
-            return np.array([next(self) for t in trange(seq_len)])
-        return np.array([next(self) for t in range(seq_len)])
+        r = trange(seq_len) if show_progress else range(seq_len)
+
+        for _ in r:
+            self.step()
+
+        best = max(self.beam, key=lambda x: x[0])
+        best_seq = best[1]
+        print(best[0], best_seq)
+        return np.array(best_seq)
 
     def export(self, name='output', seq_len=200, show_progress=True):
         """
@@ -83,6 +114,7 @@ def main():
     parser.add_argument('--length', default=200, type=int, help='Length of generation')
     parser.add_argument('--style', default=None, type=int, nargs='+', help='Styles to mix together')
     parser.add_argument('--temperature', default=1, type=float, help='Temperature of generation')
+    parser.add_argument('--beam', default=1, type=int, help='Beam size')
     parser.add_argument('--debug', default=False, action='store_true', help='Use training data as input')
     args = parser.parse_args()
 
@@ -110,7 +142,7 @@ def main():
         print('WARNING: No model loaded! Please specify model path.')
 
     print('=== Generating ===')
-    Generation(model, style=style, primer=primer, default_temp=args.temperature).export(seq_len=args.length)
+    Generation(model, style=style, primer=primer, default_temp=args.temperature, beam_size=args.beam).export(seq_len=args.length)
 
 if __name__ == '__main__':
     main()

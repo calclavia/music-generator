@@ -63,10 +63,7 @@ class DeepJ(nn.Module):
         return x, states
 
     def generate(self, inputs, style, states, temperature=1):
+        """ Returns the probability of outputs """
         x, states = self.forward(inputs, style, states)
-        # TODO: Check temperature?
         x = self.softmax(x / temperature)
-
-        # Sample action
-        batch = batch_sample(x.cpu().data.numpy())
-        return batch, states
+        return x, states

@@ -3,7 +3,7 @@ import sys
 import logging
 import numpy as np
 
-from flask import stream_with_context, request, Response, render_template, Flask
+from flask import Flask, stream_with_context, request, Response, render_template
 
 import torch
 from model import DeepJ
@@ -35,8 +35,7 @@ styles = {
     'baroque': 0,
     'classical': 1,
     'romantic': 2,
-    'modern': 3,
-    'jazz': 4
+    'modern': 3
 }
 
 @app.route('/stream.wav')
