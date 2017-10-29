@@ -15,8 +15,6 @@ class DeepJ(nn.Module):
         self.num_layers = num_layers
         self.style_units = style_units
 
-        # self.dropout = nn.Dropout(0.1)
-
         # RNN
         self.rnns = [nn.LSTMCell(NUM_ACTIONS if i == 0 else self.num_units, self.num_units) for i in range(num_layers)]
         self.output = nn.Linear(self.num_units, NUM_ACTIONS)
@@ -53,7 +51,6 @@ class DeepJ(nn.Module):
 
             x, state = rnn(x, states[l])
             states[l] = (x, state)
-            # x = self.dropout(x)
 
             # Residual connection
             if l != 0:

@@ -98,7 +98,6 @@ class Generation():
 
         best = max(self.beam, key=lambda x: x[0])
         best_seq = best[1]
-        print(best[0], best_seq)
         return np.array(best_seq)
 
     def export(self, name='output', seq_len=200, show_progress=True):
