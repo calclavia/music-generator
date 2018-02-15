@@ -18,8 +18,8 @@ class DeepJ(nn.Module):
 
         # RNN
         self.rnns = [
-            nn.GRU(NUM_ACTIONS + style_units, num_units, 2, batch_first=True) if i == 0 else 
-            DilatedRNN(nn.GRU(num_units, num_units, batch_first=True), 2 ** i)
+            nn.LSTM(NUM_ACTIONS + style_units, num_units * 2, batch_first=True) if i == 0 else 
+            DilatedRNN(nn.LSTM(num_units * (2 if i == 1 else 1), num_units, batch_first=True), 2 ** i)
             for i in range(num_layers)
         ]
 
@@ -47,11 +47,7 @@ class DeepJ(nn.Module):
             states = [None for _ in range(self.num_layers)]
 
         for l, rnn in enumerate(self.rnns):
-            prev_x = x
             x, states[l] = rnn(x, states[l])
-
-            if l > 0:
-                x = prev_x + x
 
         x = self.output_linear(x)
         return x, states
