@@ -138,7 +138,7 @@ def main():
     print('=== Generating ===')
 
     for style in styles:
-        fname = args.fname + str(style)
+        fname = args.fname + str(list(style))
         print('File: {}'.format(fname))
         generation = Generation(model, style=style, default_temp=args.temperature, beam_size=args.beam, adaptive=args.adaptive)
         generation.export(name=fname, seq_len=args.length)

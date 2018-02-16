@@ -115,7 +115,7 @@ def train_step(model, data, optimizer):
 
     # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
     # Reference: https://github.com/pytorch/examples/blob/master/word_language_model/main.py
-    # torch.nn.utils.clip_grad_norm(model.parameters(), GRADIENT_CLIP)
+    torch.nn.utils.clip_grad_norm(model.parameters(), GRADIENT_CLIP)
     optimizer.step()
 
     # Copy the parameters back into the model
@@ -136,7 +136,6 @@ def compute_loss(model, data, volatile=False):
 
     # Feed it to the model
     inputs = var(one_hot_seq(note_seq[:, :-1], NUM_ACTIONS), volatile=volatile)
-    # TODO: Use async?
     targets = var(note_seq[:, 1:], volatile=volatile)
     output, _ = model(inputs, styles, None)
 
