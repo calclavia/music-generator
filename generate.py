@@ -23,8 +23,7 @@ class Generation():
 
         self.beam_size = beam_size
 
-        # Pick a random style
-        self.style = style if style is not None else one_hot(np.random.randint(0, NUM_STYLES), NUM_STYLES)
+        self.style = style
 
         # Temperature of generation
         self.default_temp = default_temp
@@ -103,36 +102,51 @@ class Generation():
 
 def main():
     parser = argparse.ArgumentParser(description='Generates music.')
-    parser.add_argument('--path', help='Path to model file')
+    parser.add_argument('--fname', default='output', help='Name of the output file')
+    parser.add_argument('--model', help='Path to model file')
     parser.add_argument('--length', default=5000, type=int, help='Length of generation')
-    parser.add_argument('--style', default=None, type=int, nargs='+', help='Styles to mix together')
+    parser.add_argument('--style', default=None, type=int, nargs='+', help='Specify the styles to mix together. By default will generate all possible styles.')
     parser.add_argument('--temperature', default=0.9, type=float, help='Temperature of generation')
     parser.add_argument('--beam', default=1, type=int, help='Beam size')
     parser.add_argument('--adaptive', default=False, action='store_true', help='Adaptive temperature')
+    parser.add_argument('--synth', default=False, action='store_true', help='Synthesize output in MP3')
     args = parser.parse_args()
 
-    style = None
+    styles = []
 
     if args.style:
         # Custom style
-        style = np.mean([one_hot(i, NUM_STYLES) for i in args.style], axis=0)
-
+        styles = [np.mean([one_hot(i, NUM_STYLES) for i in args.style], axis=0)]
+    else:
+        # Generate all possible style
+        styles = [one_hot(i, NUM_STYLES) for i in range(len(STYLES))]
+    
     print('=== Loading Model ===')
-    print('Path: {}'.format(args.path))
+    print('Path: {}'.format(args.model))
     print('Temperature: {}'.format(args.temperature))
     print('Adaptive Temperature: {}'.format(args.adaptive))
-    print('GPU: {}'.format(torch.cuda.is_available()))
+    print('Styles: {}'.format(styles))
     settings['force_cpu'] = True
     
     model = DeepJ()
 
-    if args.path:
-        model.load_state_dict(torch.load(args.path))
+    if args.model:
+        model.load_state_dict(torch.load(args.model))
     else:
         print('WARNING: No model loaded! Please specify model path.')
 
     print('=== Generating ===')
-    Generation(model, style=style, default_temp=args.temperature, beam_size=args.beam, adaptive=args.adaptive).export(seq_len=args.length)
+
+    for style in styles:
+        fname = args.fname + str(style)
+        print('File: {}'.format(fname))
+        generation = Generation(model, style=style, default_temp=args.temperature, beam_size=args.beam, adaptive=args.adaptive)
+        generation.export(name=fname, seq_len=args.length)
+
+        if args.synth:
+            data = synthesize(os.path.join(SAMPLES_DIR, fname + '.mid'))
+            with open(os.path.join(SAMPLES_DIR, fname + '.mp3'), 'wb') as f:
+                f.write(data)
 
 if __name__ == '__main__':
     main()

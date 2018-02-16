@@ -7,6 +7,8 @@ import numpy as np
 import os
 from constants import *
 from util import *
+import subprocess
+import urllib.request
 
 class TrackBuilder():
     def __init__(self, event_seq, tempo=mido.bpm2tempo(120)):
@@ -169,6 +171,32 @@ def save_midi_file(file, event_seq):
     os.makedirs(SAMPLES_DIR, exist_ok=True)
     midi_file = seq_to_midi(event_seq)
     midi_file.save(file=file)
+
+def synthesize(mid_fname, gain=3.3):
+    """
+    Synthesizes a MIDI file into MP3
+    """
+    # Find soundfont
+    if not os.path.isfile(SOUND_FONT_PATH):
+        # Download it
+        urllib.request.urlretrieve(SOUND_FONT_URL, SOUND_FONT_PATH)
+
+    # Synthsize
+    fsynth_proc = subprocess.Popen([
+        'fluidsynth',
+        '-nl',
+        '-f', 'fluidsynth.cfg',
+        '-T', 'raw',
+        '-g', str(gain),
+        '-F', '-',
+        SOUND_FONT_PATH,
+        mid_fname
+    ], stdout=subprocess.PIPE)
+
+    # Convert to MP3
+    lame_proc = subprocess.Popen(['lame', '-q', '5', '-r', '-'], stdin=fsynth_proc.stdout, stdout=subprocess.PIPE)
+    return lame_proc.communicate()[0]
+
 
 if __name__ == '__main__':
     # Test

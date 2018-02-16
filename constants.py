@@ -26,7 +26,7 @@ SCALE_FACTOR = 2 ** 8
 # The number of train generator cycles per sequence
 TRAIN_CYCLES = 1000
 VAL_CYCLES = int(TRAIN_CYCLES * 0.05)
-LEARNING_RATE = 2e-3
+LEARNING_RATE = 4e-3
 
 # Style
 STYLES = ['data/baroque', 'data/classical', 'data/romantic', 'data/modern']
@@ -36,6 +36,9 @@ NUM_STYLES = len(STYLES)
 OUT_DIR = 'out'
 CACHE_DIR = 'out/cache'
 SAMPLES_DIR = 'out/samples'
+# Synthesizer sound file
+SOUND_FONT_PATH = CACHE_DIR + '/soundfont.sf2'
+SOUND_FONT_URL = 'http://zenvoid.org/audio/acoustic_grand_piano_ydp_20080910.sf2'
 
 settings = {
     'force_cpu': False
