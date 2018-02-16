@@ -6,6 +6,20 @@ from constants import *
 import sys
 from collections import defaultdict
 
+def copy_in_params(net, params):
+    """ Copies the tensor data from params to net """
+    net_params = list(net.parameters())
+    for i in range(len(params)):
+        net_params[i].data.copy_(params[i].data)
+
+def set_grad(params, params_with_grad):
+    """ Copies the gradient from params_with_grad to params """
+    for param, param_w_grad in zip(params, params_with_grad):
+        if param.grad is None:
+            param.grad = torch.nn.Parameter(param.data.new().resize_(*param.data.size()))
+        param.grad.data.copy_(param_w_grad.grad.data)
+
+
 def ngrams(tokens, n):
     ngram = []
     for token in tokens:

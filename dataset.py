@@ -94,11 +94,11 @@ def sampler(data):
         )
     return sample
 
-def batcher(sampler):
+def batcher(sampler, batch_size, seq_len=SEQ_LEN):
     """
     Bundles samples into batches
     """
-    def batch(batch_size=BATCH_SIZE, seq_len=SEQ_LEN):
+    def batch():
         batch = [sampler(seq_len) for i in range(batch_size)]
         return [torch.stack(x) for x in zip(*batch)]
     return batch 
