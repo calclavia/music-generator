@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from fp16util import *
+
 import matplotlib
 if os.environ.get('DISPLAY','') == '':
     print('no display found. Using non-interactive Agg backend')
@@ -31,7 +33,7 @@ def plot_loss(training_loss, validation_loss, name):
     plt.plot(validation_loss)
     plt.savefig(OUT_DIR + '/' + name)
 
-def train(model, train_batcher, train_len, val_batcher, val_len, optimizer, plot=True, gen_rate=1, patience=5):
+def train(args, model, train_batcher, train_len, val_batcher, val_len, optimizer, plot=True, gen_rate=1, patience=5):
     """
     Trains a model on multiple seq batches by iterating through a generator.
     """
@@ -95,32 +97,38 @@ def train(model, train_batcher, train_len, val_batcher, val_len, optimizer, plot
 
         epoch += 1
 
-        # Early stopping
-        """
-        if epoch > patience:
-            min_loss = min(val_losses)
-            if min(val_losses[-patience:]) > min_loss:
-                break
-        """
-
 def train_step(model, data, optimizer):
     """
     Trains the model on a single batch of sequence.
     """
     model.train()
 
+    loss, avg_loss = compute_loss(model, data)
+    
+    # Scale the loss
+    loss = loss * SCALE_FACTOR
+
     # Zero out the gradient
     optimizer.zero_grad()
-
-    loss, avg_loss = compute_loss(model, data)
-
     loss.backward()
+    param_copy = model.param_copy
+    set_grad(param_copy, list(model.parameters()))
+
+    # Unscale the loss
+    if SCALE_FACTOR != 1:
+        for param in param_copy:
+            param.grad.data = param.grad.data / SCALE_FACTOR
 
     # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
     # Reference: https://github.com/pytorch/examples/blob/master/word_language_model/main.py
     # torch.nn.utils.clip_grad_norm(model.parameters(), GRADIENT_CLIP)
 
     optimizer.step()
+
+    # Copy the parameters back into the model
+    params = list(model.parameters())
+    for i in range(len(params)): 
+        params[i].data.copy_(param_copy[i].data)
 
     return avg_loss
 
@@ -151,6 +159,7 @@ def main():
     parser.add_argument('--path', help='Load existing model?')
     parser.add_argument('--gen', default=0, type=int, help='Generate per how many epochs?')
     parser.add_argument('--noplot', default=False, action='store_true', help='Do not plot training/loss graphs')
+    parser.add_argument('--fp16', default=False, action='store_true', help='Train model using FP16')
     args = parser.parse_args()
 
     print('=== Loading Model ===')
@@ -159,6 +168,12 @@ def main():
 
     if torch.cuda.is_available():
         model.cuda()
+
+        if args.fp16:
+            # Wrap forward method
+            fwd = model.forward
+            model.forward = lambda x, style, states: fwd(x.half(), style.half(), states)
+            model.half()
 
     model_parameters = filter(lambda p: p.requires_grad, model.parameters())
     params = sum([np.prod(p.size()) for p in model_parameters])
@@ -169,7 +184,11 @@ def main():
         print('Restored model from checkpoint.')
 
     # Construct optimizer
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    param_copy = [param.clone().type(torch.cuda.FloatTensor).detach() for param in model.parameters()]
+    for param in param_copy:
+        param.requires_grad = True
+    optimizer = optim.Adam(param_copy, lr=LEARNING_RATE)
+    model.param_copy = param_copy
 
     print()
 
@@ -193,7 +212,7 @@ def main():
     print()
 
     print('=== Training ===')
-    train(model, train_batcher, TRAIN_CYCLES, val_batcher, VAL_CYCLES, optimizer, plot=not args.noplot, gen_rate=args.gen)
+    train(args, model, train_batcher, TRAIN_CYCLES, val_batcher, VAL_CYCLES, optimizer, plot=not args.noplot, gen_rate=args.gen)
 
 if __name__ == '__main__':
     main()

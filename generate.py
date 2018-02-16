@@ -104,9 +104,9 @@ class Generation():
 def main():
     parser = argparse.ArgumentParser(description='Generates music.')
     parser.add_argument('--path', help='Path to model file')
-    parser.add_argument('--length', default=1000, type=int, help='Length of generation')
+    parser.add_argument('--length', default=5000, type=int, help='Length of generation')
     parser.add_argument('--style', default=None, type=int, nargs='+', help='Styles to mix together')
-    parser.add_argument('--temperature', default=1, type=float, help='Temperature of generation')
+    parser.add_argument('--temperature', default=0.9, type=float, help='Temperature of generation')
     parser.add_argument('--beam', default=1, type=int, help='Beam size')
     parser.add_argument('--adaptive', default=False, action='store_true', help='Adaptive temperature')
     args = parser.parse_args()
