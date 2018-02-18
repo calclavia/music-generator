@@ -124,6 +124,7 @@ def main():
     print('=== Loading Model ===')
     print('Path: {}'.format(args.model))
     print('Temperature: {}'.format(args.temperature))
+    print('Beam: {}'.format(args.beam))
     print('Adaptive Temperature: {}'.format(args.adaptive))
     print('Styles: {}'.format(styles))
     settings['force_cpu'] = True

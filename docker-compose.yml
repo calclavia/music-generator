@@ -1,11 +1,10 @@
 version: '2'
 
 services:
-  deepj_train:
-    build:
-      context: .
-      dockerfile: Dockerfile-train
-    image: deepj_train
+  deepj:
+    build: .
+    image: deepj
     volumes:
       - .:/src/
-    
+    environment:
+      - LC_CTYPE=C.UTF-8

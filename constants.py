@@ -26,7 +26,7 @@ SCALE_FACTOR = 2 ** 10
 # The number of train generator cycles per sequence
 TRAIN_CYCLES = 1000
 VAL_CYCLES = int(TRAIN_CYCLES * 0.05)
-LEARNING_RATE = 4e-3
+LEARNING_RATE = 1e-3
 
 # Style
 STYLES = ['data/baroque', 'data/classical', 'data/romantic', 'data/modern']

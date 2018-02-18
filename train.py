@@ -156,9 +156,6 @@ def main():
     args.fp16 = not args.no_fp16
 
     print('=== Loading Model ===')
-    print('GPU: {}'.format(torch.cuda.is_available()))
-    print('Batch Size: {}'.format(args.batch_size))
-    print('FP16: {}'.format(args.fp16))
     model = DeepJ()
 
     if torch.cuda.is_available():
@@ -170,10 +167,6 @@ def main():
             model.forward = lambda x, style, states: fwd(x.half(), style.half(), states)
             model.half()
 
-    model_parameters = filter(lambda p: p.requires_grad, model.parameters())
-    params = sum([np.prod(p.size()) for p in model_parameters])
-    print('Number of trainable parameters: {}'.format(params))
-
     if args.path:
         model.load_state_dict(torch.load(args.path))
         print('Restored model from checkpoint.')
@@ -184,6 +177,13 @@ def main():
         param.requires_grad = True
     optimizer = optim.Adam(param_copy, lr=LEARNING_RATE, eps=1e-4)
     model.param_copy = param_copy
+
+    params = sum([np.prod(p.size()) for p in model.parameters() if p.requires_grad])
+
+    print('GPU: {}'.format(torch.cuda.is_available()))
+    print('Batch Size: {}'.format(args.batch_size))
+    print('FP16: {}'.format(args.fp16))
+    print('# of Parameters: {}'.format(params))
 
     print()
 
