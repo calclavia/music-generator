@@ -119,4 +119,12 @@ def augment(sequence):
         return sequence
 
     # Perform transposition (consider only notes)
-    return (evt + transpose if evt < TIME_OFFSET else evt for evt in sequence)
+    sequence = (evt + transpose if evt < TIME_OFFSET else evt for evt in sequence)
+
+    # Random time stretch
+    stretch = random.randint(0, 3)
+
+    if stretch == 0:
+        return sequence
+
+    return (evt + stretch if evt >= TIME_OFFSET and evt < VEL_OFFSET else evt for evt in sequence)
