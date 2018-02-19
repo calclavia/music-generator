@@ -4,8 +4,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from fp16util import *
-
 import matplotlib
 if os.environ.get('DISPLAY','') == '':
     print('no display found. Using non-interactive Agg backend')
