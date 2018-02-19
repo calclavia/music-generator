@@ -18,16 +18,15 @@ class DeepJ(nn.Module):
 
         # RNN
         self.rnns = [
-            nn.GRU(num_units, num_units, batch_first=True) if i == 0 else 
+            nn.GRU(NUM_ACTIONS + style_units, num_units, 2, batch_first=True) if i == 0 else 
             DilatedRNN(nn.GRU(num_units, num_units, batch_first=True), 2 ** i)
             for i in range(num_layers)
         ]
 
+        self.output_linear = nn.Linear(self.num_units, NUM_ACTIONS)
+
         for i, rnn in enumerate(self.rnns):
             self.add_module('rnn_' + str(i), rnn)
-
-        self.input_linear = nn.Linear(NUM_ACTIONS + style_units, num_units)
-        self.output_linear = nn.Linear(num_units, NUM_ACTIONS)
 
         # Style
         self.style_linear = nn.Linear(NUM_STYLES, self.style_units)
@@ -43,8 +42,6 @@ class DeepJ(nn.Module):
         style = style.unsqueeze(1).expand(batch_size, seq_len, self.style_units)
         x = torch.cat((x, style), dim=2)
 
-        x = F.relu(self.input_linear(x))
-
         ## Process RNN ##
         if states is None:
             states = [None for _ in range(self.num_layers)]
@@ -52,8 +49,10 @@ class DeepJ(nn.Module):
         for l, rnn in enumerate(self.rnns):
             prev_x = x
             x, states[l] = rnn(x, states[l])
-            x = prev_x + x
-        
+
+            if l > 0:
+                x = prev_x + x
+
         x = self.output_linear(x)
         return x, states
 
@@ -112,4 +111,3 @@ class DilatedRNN(nn.Module):
         x = x.permute(0, 2, 1, 3)
         x = x.contiguous().view(batch_size, seq_len, -1)
         return x, states
-        
