@@ -148,6 +148,7 @@ def main():
     parser = argparse.ArgumentParser(description='Trains model')
     parser.add_argument('--path', help='Load existing model?')
     parser.add_argument('--batch-size', default=128, type=int, help='Size of the batch')
+    parser.add_argument('--lr', default=1e-3, type=int, help='Learning rate')
     parser.add_argument('--noplot', default=False, action='store_true', help='Do not plot training/loss graphs')
     parser.add_argument('--no-fp16', default=False, action='store_true', help='Disable FP16 training')
     args = parser.parse_args()
@@ -173,7 +174,7 @@ def main():
     param_copy = [param.clone().type(torch.cuda.FloatTensor).detach() for param in model.parameters()]
     for param in param_copy:
         param.requires_grad = True
-    optimizer = optim.Adam(param_copy, lr=LEARNING_RATE, eps=1e-4)
+    optimizer = optim.Adam(param_copy, lr=args.lr, eps=1e-4)
     model.param_copy = param_copy
 
     params = sum([np.prod(p.size()) for p in model.parameters() if p.requires_grad])
