@@ -110,11 +110,12 @@ def random_subseq(sequence, seq_len):
 
 def stretch_sequence(sequence, stretch_multiplier):
     """ Iterate through sequence and stretch each time shift event by a factor """
+    seq = sequence[:]
     time_sum = 0
     time_count = 0
     i = 0
-    while i < len(sequence):
-        evt = sequence[i]
+    while i < len(seq):
+        evt = seq[i]
         if evt >= TIME_OFFSET and evt < VEL_OFFSET:
             # Convert time event to number of seconds
             time_sum += convert_time_evt_to_sec(evt)
@@ -124,16 +125,16 @@ def stretch_sequence(sequence, stretch_multiplier):
             if i > 0:
                 # Once there is a non time shift event, go backwards and recalculate previous sequential time shift events
                 for j in range(i - 1, i - 1 -time_count, -1):
-                    stretch_time = (convert_time_evt_to_sec(sequence[j]) / time_sum) * (stretch_multiplier * time_sum)
+                    stretch_time = (convert_time_evt_to_sec(seq[j]) / time_sum) * (stretch_multiplier * time_sum)
                     stretch_ticks = round(stretch_time * TICKS_PER_SEC)
                     tick_bin = find_tick_bin(stretch_ticks)
-                    # Reassign event with 2x slower time
-                    sequence[j] = TIME_OFFSET + tick_bin
+                    # Reassign event with slower time
+                    seq[j] = TIME_OFFSET + tick_bin
                 # Reset tracking variables
                 time_sum = 0
                 time_count = 0
         i += 1
-    return sequence
+    return seq
 
 def augment(sequence):
     """
@@ -149,8 +150,6 @@ def augment(sequence):
     sequence = (evt + transpose if evt < TIME_OFFSET else evt for evt in sequence)
 
     # Random time stretch
-    stretch_multiplier = random.uniform(1.0, 2.0)
+    stretch_multiplier = random.uniform(1.0, 1.5)
 
-    # Convert generator to list
-    sequence = list(sequence)
-    return (s for s in stretch_sequence(sequence, stretch_multiplier))
+    return stretch_sequence(list(sequence), stretch_multiplier)
