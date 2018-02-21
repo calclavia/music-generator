@@ -108,6 +108,33 @@ def random_subseq(sequence, seq_len):
     index = random.randint(0, len(sequence) - 1 - seq_len)
     return sequence[index:index + seq_len]
 
+def stretch_sequence(sequence, stretch_multiplier):
+    """ Iterate through sequence and stretch each time shift event by a factor """
+    time_sum = 0
+    time_count = 0
+    i = 0
+    while i < len(sequence):
+        evt = sequence[i]
+        if evt >= TIME_OFFSET and evt < VEL_OFFSET:
+            # Convert time event to number of seconds
+            time_sum += convert_time_evt_to_sec(evt)
+            time_count += 1
+            # TODO: Edge case where last event is time shift event
+        else:
+            if i > 0:
+                # Once there is a non time shift event, go backwards and recalculate previous sequential time shift events
+                for j in range(i - 1, i - 1 -time_count, -1):
+                    stretch_time = (convert_time_evt_to_sec(sequence[j]) / time_sum) * (stretch_multiplier * time_sum)
+                    stretch_ticks = round(stretch_time * TICKS_PER_SEC)
+                    tick_bin = find_tick_bin(stretch_ticks)
+                    # Reassign event with 2x slower time
+                    sequence[j] = TIME_OFFSET + tick_bin
+                # Reset tracking variables
+                time_sum = 0
+                time_count = 0
+        i += 1
+    return sequence
+
 def augment(sequence):
     """
     Takes a sequence of events and randomly perform augmentations.
@@ -122,9 +149,8 @@ def augment(sequence):
     sequence = (evt + transpose if evt < TIME_OFFSET else evt for evt in sequence)
 
     # Random time stretch
-    stretch = random.randint(0, 3)
+    stretch_multiplier = random.uniform(1.0, 2.0)
 
-    if stretch == 0:
-        return sequence
-
-    return (evt + stretch if evt >= TIME_OFFSET and evt < VEL_OFFSET else evt for evt in sequence)
+    # Convert generator to list
+    sequence = list(sequence)
+    return (s for s in stretch_sequence(sequence, stretch_multiplier))
