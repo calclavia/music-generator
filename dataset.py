@@ -111,24 +111,41 @@ def random_subseq(sequence, seq_len):
 def stretch_sequence(sequence, stretch_scale):
     """ Iterate through sequence and stretch each time shift event by a factor """
     stretch_sequence = []
+    time_sum = 0
+    time_count = 0
     i = 0
     while i < len(sequence):
         evt = sequence[i]
         if evt >= TIME_OFFSET and evt < VEL_OFFSET:
-            stretch_time_evts = stretch_time_evt(evt, stretch_scale)
-            # Add time events after time stretch to the new sequence
-            for s in stretch_time_evts:
-                stretch_sequence.append(s)
+            # Convert time event to number of seconds
+            time_sum += convert_time_evt_to_sec(evt)
+            time_count += 1
+            # Edge case where last events are time shift events
+            if i == len(sequence) - 1:
+                for j in range(i, i - time_count, -1):
+                    stretch_time_evts = stretch_time_evt(sequence[j], time_sum, stretch_scale)
+                    for s in stretch_time_evts:
+                        stretch_sequence.append(s)
         else:
+            if i > 0:
+                # Once there is a non time shift event, go backwards and recalculate previous sequential time shift events
+                for j in range(i - 1, i - 1 - time_count, -1):
+                    stretch_time_evts = stretch_time_evt(sequence[j], time_sum, stretch_scale)
+                    # Add time events after time stretch to the new sequence
+                    for s in stretch_time_evts:
+                        stretch_sequence.append(s)
+                # Reset tracking variables
+                time_sum = 0
+                time_count = 0
             stretch_sequence.append(evt)
         i += 1
     # Number of time events after time stretch may increase or decrease
     # so sequence is sliced to ensure the number of events is consistent
     return stretch_sequence[:SEQ_LEN]
 
-def stretch_time_evt(evt, stretch_scale):
+def stretch_time_evt(evt, time_sum, stretch_scale):
     """ Stretch time event by a constant """
-    stretch_time = convert_time_evt_to_sec(evt) * stretch_scale
+    stretch_time = (convert_time_evt_to_sec(evt) / time_sum) * (stretch_scale * time_sum)
     standard_ticks = round(stretch_time * TICKS_PER_SEC)
     events = []
     # Add in seconds
