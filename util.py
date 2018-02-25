@@ -86,6 +86,15 @@ def gen_to_tensor(generator):
     return torch.LongTensor(list(generator))
 
 
+def convert_time_evt_to_sec(evt):
+    """
+    Convert time shift event to seconds
+    """
+    tick_bin = evt - TIME_OFFSET
+    seconds = TICK_BINS[tick_bin] / TICKS_PER_SEC
+    return seconds
+
+
 def find_tick_bin(ticks):
     """
     Returns the tick bin this belongs to, or None if the number of ticks is too little

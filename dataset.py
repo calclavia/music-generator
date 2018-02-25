@@ -108,6 +108,47 @@ def random_subseq(sequence, seq_len):
     index = random.randint(0, len(sequence) - 1 - seq_len)
     return sequence[index:index + seq_len]
 
+def stretch_sequence(sequence, stretch_scale):
+    """ Iterate through sequence and stretch each time shift event by a factor """
+    stretch_sequence = []
+    i = 0
+    while i < len(sequence):
+        evt = sequence[i]
+        if evt >= TIME_OFFSET and evt < VEL_OFFSET:
+            stretch_time_evts = stretch_time_evt(evt, stretch_scale)
+            # Add time events after time stretch to the new sequence
+            for s in stretch_time_evts:
+                stretch_sequence.append(s)
+        else:
+            stretch_sequence.append(evt)
+        i += 1
+    # Number of time events after time stretch may increase or decrease
+    # so sequence is sliced to ensure the number of events is consistent
+    return stretch_sequence[:SEQ_LEN]
+
+def stretch_time_evt(evt, stretch_scale):
+    """ Stretch time event by a constant """
+    stretch_time = convert_time_evt_to_sec(evt) * stretch_scale
+    standard_ticks = round(stretch_time * TICKS_PER_SEC)
+    events = []
+    # Add in seconds
+    while standard_ticks >= 1:
+        # Find the largest bin to put this time in
+        tick_bin = find_tick_bin(standard_ticks)
+
+        if tick_bin is None:
+            break
+
+        evt_index = TIME_OFFSET + tick_bin
+        events.append(evt_index)
+        standard_ticks -= TICK_BINS[tick_bin]
+
+        # Approximate to the nearest tick bin instead of precise wrapping
+        if standard_ticks < TICK_BINS[-1]:
+            break
+
+    return events
+
 def augment(sequence):
     """
     Takes a sequence of events and randomly perform augmentations.
@@ -119,4 +160,9 @@ def augment(sequence):
         return sequence
 
     # Perform transposition (consider only notes)
-    return (evt + transpose if evt < TIME_OFFSET else evt for evt in sequence)
+    sequence = (evt + transpose if evt < TIME_OFFSET else evt for evt in sequence)
+
+    # Random time stretch
+    stretch_multiplier = random.uniform(1.0, 2.0)
+
+    return stretch_sequence(list(sequence), stretch_multiplier)
