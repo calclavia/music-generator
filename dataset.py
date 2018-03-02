@@ -163,6 +163,6 @@ def augment(sequence):
     sequence = (evt + transpose if evt < TIME_OFFSET else evt for evt in sequence)
 
     # Random time stretch
-    stretch_multiplier = random.uniform(1.0, 2.0)
+    stretch_multiplier = random.uniform(1.0, 1.25)
 
     return stretch_sequence(list(sequence), stretch_multiplier)
