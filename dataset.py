@@ -119,7 +119,7 @@ def stretch_sequence(sequence, stretch_scale):
     """ Iterate through sequence and stretch each time shift event by a factor """
     # Accumulated time in seconds
     time_sum = 0
-
+    seq_len = 0
     for i, evt in enumerate(sequence):
         if evt >= TIME_OFFSET and evt < VEL_OFFSET:
             # This is a time shift event
@@ -134,12 +134,19 @@ def stretch_sequence(sequence, stretch_scale):
                     yield x
                 # Reset tracking variables
                 time_sum = 0
+            seq_len += 1
             yield evt
 
     # Edge case where last events are time shift events
     if time_sum > 0:
         for x in seconds_to_events(time_sum * stretch_scale):
+            seq_len += 1
             yield x
+
+    # Pad sequence with empty events if seq len not enough
+    if seq_len < SEQ_LEN:
+        for x in range(SEQ_LEN - seq_len):
+            yield 0
             
 def transpose(sequence):
     """ A generator that represents the sequence. """
