@@ -80,6 +80,30 @@ def convert_time_evt_to_sec(evt):
     seconds = TICK_BINS[tick_bin] / TICKS_PER_SEC
     return seconds
 
+def seconds_to_events(seconds):
+    """
+    Converts time in seconds to a sequence of time events that
+    represents the given time interval.
+    """
+    # Number of ticks in DeepJ tick units
+    standard_ticks = round(seconds * TICKS_PER_SEC)
+
+    # Add in seconds
+    while standard_ticks >= 1:
+        # Find the largest bin to put this time in
+        tick_bin = find_tick_bin(standard_ticks)
+
+        if tick_bin is None:
+            break
+
+        evt_index = TIME_OFFSET + tick_bin
+        assert evt_index >= TIME_OFFSET and evt_index < VEL_OFFSET, (standard_ticks, tick_bin)
+        yield evt_index
+        standard_ticks -= TICK_BINS[tick_bin]
+
+        # Approximate to the nearest tick bin instead of precise wrapping
+        if standard_ticks < TICK_BINS[-1]:
+            break
 
 def find_tick_bin(ticks):
     """

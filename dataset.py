@@ -10,6 +10,7 @@ import math
 import random
 from tqdm import tqdm
 import multiprocessing
+import itertools
 
 from constants import *
 from midi_io import load_midi
@@ -87,8 +88,19 @@ def sampler(data):
     def sample(seq_len):
         # Pick random sequence
         seq_id = random.randint(0, len(seqs) - 1)
+        seq = seqs[seq_id]
+        # Pick random start index
+        start_index = random.randint(0, len(seq) - 1 - seq_len * 2)
+        seq = seq[start_index:]
+        # Apply random augmentations
+        seq = augment(seq)
+        # Take first N elements. After augmentation seq len changes.
+        seq = itertools.islice(seq, seq_len)
+        seq = gen_to_tensor(seq)
+        assert seq.size() == (seq_len,), seq.size()
+
         return (
-            gen_to_tensor(augment(random_subseq(seqs[seq_id], seq_len))),
+            seq,
             # Need to retain the tensor object. Hence slicing is used.
             torch.LongTensor(style_tags[seq_id:seq_id+1])
         )
@@ -99,77 +111,38 @@ def batcher(sampler):
     Bundles samples into batches
     """
     def batch(batch_size=BATCH_SIZE, seq_len=SEQ_LEN):
-        batch = [sampler(seq_len) for i in range(batch_size)]
+        batch = [sampler(seq_len) for _ in range(batch_size)]
         return [torch.stack(x) for x in zip(*batch)]
     return batch 
 
-def random_subseq(sequence, seq_len):
-    """ Randomly creates a subsequence from the sequence """
-    index = random.randint(0, len(sequence) - 1 - seq_len)
-    return sequence[index:index + seq_len]
-
 def stretch_sequence(sequence, stretch_scale):
     """ Iterate through sequence and stretch each time shift event by a factor """
-    stretch_sequence = []
+    # Accumulated time in seconds
     time_sum = 0
-    time_count = 0
-    i = 0
-    while i < len(sequence):
-        evt = sequence[i]
+
+    for i, evt in enumerate(sequence):
         if evt >= TIME_OFFSET and evt < VEL_OFFSET:
+            # This is a time shift event
             # Convert time event to number of seconds
+            # Then, accumulate the time
             time_sum += convert_time_evt_to_sec(evt)
-            time_count += 1
-            # Edge case where last events are time shift events
-            if i == len(sequence) - 1:
-                for j in range(i, i - time_count, -1):
-                    stretch_time_evts = stretch_time_evt(sequence[j], time_sum, stretch_scale)
-                    for s in stretch_time_evts:
-                        stretch_sequence.append(s)
         else:
             if i > 0:
-                # Once there is a non time shift event, go backwards and recalculate previous sequential time shift events
-                for j in range(i - 1, i - 1 - time_count, -1):
-                    stretch_time_evts = stretch_time_evt(sequence[j], time_sum, stretch_scale)
-                    # Add time events after time stretch to the new sequence
-                    for s in stretch_time_evts:
-                        stretch_sequence.append(s)
+                # Once there is a non time shift event, we take the
+                # buffered time and add it with time stretch applied.
+                for x in seconds_to_events(time_sum * stretch_scale):
+                    yield x
                 # Reset tracking variables
                 time_sum = 0
-                time_count = 0
-            stretch_sequence.append(evt)
-        i += 1
-    # Number of time events after time stretch may increase or decrease
-    # so sequence is sliced to ensure the number of events is consistent
-    return stretch_sequence[:SEQ_LEN]
+            yield evt
 
-def stretch_time_evt(evt, time_sum, stretch_scale):
-    """ Stretch time event by a constant """
-    stretch_time = (convert_time_evt_to_sec(evt) / time_sum) * (stretch_scale * time_sum)
-    standard_ticks = round(stretch_time * TICKS_PER_SEC)
-    events = []
-    # Add in seconds
-    while standard_ticks >= 1:
-        # Find the largest bin to put this time in
-        tick_bin = find_tick_bin(standard_ticks)
-
-        if tick_bin is None:
-            break
-
-        evt_index = TIME_OFFSET + tick_bin
-        events.append(evt_index)
-        standard_ticks -= TICK_BINS[tick_bin]
-
-        # Approximate to the nearest tick bin instead of precise wrapping
-        if standard_ticks < TICK_BINS[-1]:
-            break
-
-    return events
-
-def augment(sequence):
-    """
-    Takes a sequence of events and randomly perform augmentations.
-    """
+    # Edge case where last events are time shift events
+    if time_sum > 0:
+        for x in seconds_to_events(time_sum * stretch_scale):
+            yield x
+            
+def transpose(sequence):
+    """ A generator that represents the sequence. """
     # Transpose by 4 semitones at most
     transpose = random.randint(-4, 4)
 
@@ -177,9 +150,12 @@ def augment(sequence):
         return sequence
 
     # Perform transposition (consider only notes)
-    sequence = (evt + transpose if evt < TIME_OFFSET else evt for evt in sequence)
+    return (evt + transpose if evt < TIME_OFFSET else evt for evt in sequence)
 
-    # Random time stretch
-    stretch_multiplier = random.uniform(1.0, 1.25)
-
-    return stretch_sequence(list(sequence), stretch_multiplier)
+def augment(sequence):
+    """
+    Takes a sequence of events and randomly perform augmentations.
+    """
+    sequence = transpose(sequence)
+    sequence = stretch_sequence(sequence, random.uniform(1.0, 1.25))
+    return sequence
