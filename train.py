@@ -184,8 +184,8 @@ def main():
     val_batcher = batcher(sampler(val_data))
 
     # Checks if training data sounds right.
-    for i, seq in enumerate(train_batcher()[0]):
-        save_midi('train_seq_{}'.format(i), seq.cpu().numpy())
+    # for i, seq in enumerate(train_batcher()[0]):
+    #     save_midi('train_seq_{}'.format(i), seq.cpu().numpy())
 
     print('Training Sequences:', len(train_data[0]), 'Validation Sequences:', len(val_data[0]))
     print()
