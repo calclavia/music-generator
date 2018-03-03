@@ -146,7 +146,7 @@ def stretch_sequence(sequence, stretch_scale):
     # Pad sequence with empty events if seq len not enough
     if seq_len < SEQ_LEN:
         for x in range(SEQ_LEN - seq_len):
-            yield 0
+            yield TIME_OFFSET
             
 def transpose(sequence):
     """ A generator that represents the sequence. """
