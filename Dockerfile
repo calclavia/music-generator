@@ -1,23 +1,13 @@
-FROM ubuntu:latest
+FROM nvidia/cuda:9.1-base-ubuntu16.04
 
 # Install Python & dependencies
 RUN \
   apt-get update && \
-  apt-get install -y python3 python3-dev python3-pip git fluidsynth curl
+  apt-get install -y python3 python3-dev python3-pip python3-tk fluidsynth curl lame
 
-# Install lame
-RUN apt-get install -y lame
-
-# Download Soundfonts
-RUN mkdir src && \
-    curl -o /src/acoustic_grand_piano.sf2 http://zenvoid.org/audio/acoustic_grand_piano_ydp_20080910.sf2
-
-COPY requirements.txt /src/
+COPY requirements.txt /tmp/
 
 # Install app dependencies
-RUN pip3 install --no-cache-dir -r /src/requirements.txt
-
-# Bundle app source
-COPY . /src/
+RUN pip3 install --no-cache-dir -r /tmp/requirements.txt
 
 CMD ["bash"]

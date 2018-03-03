@@ -19,7 +19,6 @@ from dataset import *
 from constants import *
 from util import *
 from model import DeepJ
-from generate import Generation
 from midi_io import save_midi
 
 criterion = nn.CrossEntropyLoss()
@@ -31,7 +30,7 @@ def plot_loss(training_loss, validation_loss, name):
     plt.plot(validation_loss)
     plt.savefig(OUT_DIR + '/' + name)
 
-def train(model, train_batcher, train_len, val_batcher, val_len, optimizer, plot=True, gen_rate=1, patience=5):
+def train(args, model, train_batcher, train_len, val_batcher, val_len, optimizer, plot=True):
     """
     Trains a model on multiple seq batches by iterating through a generator.
     """
@@ -88,20 +87,7 @@ def train(model, train_batcher, train_len, val_batcher, val_len, optimizer, plot
         # Save model
         torch.save(model.state_dict(), OUT_DIR + '/model_' + str(epoch) + '.pt')
 
-        # Generate
-        if gen_rate > 0 and epoch % gen_rate == 0:
-            print('Generating...')
-            Generation(model).export(name='epoch_' + str(epoch))
-
         epoch += 1
-
-        # Early stopping
-        """
-        if epoch > patience:
-            min_loss = min(val_losses)
-            if min(val_losses[-patience:]) > min_loss:
-                break
-        """
 
 def train_step(model, data, optimizer):
     """
@@ -109,19 +95,29 @@ def train_step(model, data, optimizer):
     """
     model.train()
 
-    # Zero out the gradient
-    optimizer.zero_grad()
-
     loss, avg_loss = compute_loss(model, data)
+    
+    # Scale the loss
+    loss = loss * SCALE_FACTOR
 
+    # Zero out the gradient
+    model.zero_grad()
     loss.backward()
+    param_copy = model.param_copy
+    set_grad(param_copy, list(model.parameters()))
+
+    # Unscale the gradient
+    if SCALE_FACTOR != 1:
+        for param in param_copy:
+            param.grad.data /= SCALE_FACTOR
 
     # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
     # Reference: https://github.com/pytorch/examples/blob/master/word_language_model/main.py
-    # torch.nn.utils.clip_grad_norm(model.parameters(), GRADIENT_CLIP)
-
+    torch.nn.utils.clip_grad_norm(model.parameters(), GRADIENT_CLIP)
     optimizer.step()
 
+    # Copy the parameters back into the model
+    copy_in_params(model, param_copy)
     return avg_loss
 
 def val_step(model, data):
@@ -135,41 +131,58 @@ def compute_loss(model, data, volatile=False):
     # Convert all tensors into variables
     note_seq, styles = data
     styles = var(one_hot_batch(styles, NUM_STYLES), volatile=volatile)
-    
+
     # Feed it to the model
     inputs = var(one_hot_seq(note_seq[:, :-1], NUM_ACTIONS), volatile=volatile)
     targets = var(note_seq[:, 1:], volatile=volatile)
     output, _ = model(inputs, styles, None)
 
     # Compute the loss.
-    loss = criterion(output.view(-1, NUM_ACTIONS), targets.contiguous().view(-1))
+    # Note that we need to convert this back into a float because it is a large summation.
+    # Otherwise, it will result in 0 gradient.
+    loss = criterion(output.view(-1, NUM_ACTIONS).float(), targets.contiguous().view(-1))
 
     return loss, loss.data[0]
 
 def main():
     parser = argparse.ArgumentParser(description='Trains model')
     parser.add_argument('--path', help='Load existing model?')
-    parser.add_argument('--gen', default=0, type=int, help='Generate per how many epochs?')
+    parser.add_argument('--batch-size', default=128, type=int, help='Size of the batch')
+    parser.add_argument('--lr', default=1e-3, type=float, help='Learning rate')
     parser.add_argument('--noplot', default=False, action='store_true', help='Do not plot training/loss graphs')
+    parser.add_argument('--no-fp16', default=False, action='store_true', help='Disable FP16 training')
     args = parser.parse_args()
+    args.fp16 = not args.no_fp16
 
     print('=== Loading Model ===')
-    print('GPU: {}'.format(torch.cuda.is_available()))
     model = DeepJ()
 
     if torch.cuda.is_available():
         model.cuda()
 
-    model_parameters = filter(lambda p: p.requires_grad, model.parameters())
-    params = sum([np.prod(p.size()) for p in model_parameters])
-    print('Number of trainable parameters: {}'.format(params))
+        if args.fp16:
+            # Wrap forward method
+            fwd = model.forward
+            model.forward = lambda x, style, states: fwd(x.half(), style.half(), states)
+            model.half()
 
     if args.path:
         model.load_state_dict(torch.load(args.path))
         print('Restored model from checkpoint.')
 
     # Construct optimizer
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    param_copy = [param.clone().type(torch.cuda.FloatTensor).detach() for param in model.parameters()]
+    for param in param_copy:
+        param.requires_grad = True
+    optimizer = optim.Adam(param_copy, lr=args.lr, eps=1e-4)
+    model.param_copy = param_copy
+
+    params = sum([np.prod(p.size()) for p in model.parameters() if p.requires_grad])
+
+    print('GPU: {}'.format(torch.cuda.is_available()))
+    print('Batch Size: {}'.format(args.batch_size))
+    print('FP16: {}'.format(args.fp16))
+    print('# of Parameters: {}'.format(params))
 
     print()
 
@@ -180,8 +193,8 @@ def main():
     print()
     print('Creating data generators...')
     train_data, val_data = validation_split(data)
-    train_batcher = batcher(sampler(train_data))
-    val_batcher = batcher(sampler(val_data))
+    train_batcher = batcher(sampler(train_data), args.batch_size)
+    val_batcher = batcher(sampler(val_data), args.batch_size)
 
     # Checks if training data sounds right.
     # for i, seq in enumerate(train_batcher()[0]):
@@ -191,7 +204,7 @@ def main():
     print()
 
     print('=== Training ===')
-    train(model, train_batcher, TRAIN_CYCLES, val_batcher, VAL_CYCLES, optimizer, plot=not args.noplot, gen_rate=args.gen)
+    train(args, model, train_batcher, TRAIN_CYCLES, val_batcher, VAL_CYCLES, optimizer, plot=not args.noplot)
 
 if __name__ == '__main__':
     main()

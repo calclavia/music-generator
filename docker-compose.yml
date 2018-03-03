@@ -4,6 +4,7 @@ services:
   deepj:
     build: .
     image: deepj
-    ports:
-      - 5000:5000
-    command: python3 /src/server.py
+    volumes:
+      - .:/src/
+    environment:
+      - LC_CTYPE=C.UTF-8

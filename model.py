@@ -107,8 +107,7 @@ class DilatedRNN(nn.Module):
         # X is now [batch * dilation, seq_len//dilation, features]
         # We want to restore it back into [batch, seq_len, features]
         # But we can't simply reshape it, because that messes up the order.
-        x = x.contiguous().view(batch_size, self.dilation, seq_len //self.dilation, -1)
+        x = x.contiguous().view(batch_size, self.dilation, seq_len // self.dilation, -1)
         x = x.permute(0, 2, 1, 3)
         x = x.contiguous().view(batch_size, seq_len, -1)
         return x, states
-        
