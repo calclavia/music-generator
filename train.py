@@ -58,7 +58,7 @@ def train(args, model, train_batcher, train_len, val_batcher, val_len, optimizer
 
                 total_metrics += metrics
                 avg_metrics = total_metrics / step
-                t.set_postfix(ce=avg_metrics[0], kl=avg_metrics[1], kl_loss=avg_metrics[2], loss=sum(avg_metrics))
+                t.set_postfix(ce=avg_metrics[0], kl=avg_metrics[1], kl_loss=avg_metrics[2], loss=sum((avg_metrics[0], avg_metrics[2])))
 
                 step += 1
                 total_step += 1
@@ -77,14 +77,14 @@ def train(args, model, train_batcher, train_len, val_batcher, val_len, optimizer
                 metrics = val_step(model, data, total_step)
                 total_metrics += metrics
                 avg_metrics = total_metrics / step
-                t.set_postfix(ce=avg_metrics[0], kl=avg_metrics[1], kl_loss=avg_metrics[2], loss=sum(avg_metrics))
+                t.set_postfix(ce=avg_metrics[0], kl=avg_metrics[1], kl_loss=avg_metrics[2], loss=sum((avg_metrics[0], avg_metrics[2])))
 
                 step += 1
             
         val_metrics.append(avg_metrics)
 
         if plot:
-            plot_graph([sum(m) for m in train_metrics], [sum(m) for m in val_metrics], 'loss.png')
+            plot_graph([sum((m[0], m[2])) for m in train_metrics], [sum((m[0], m[2])) for m in val_metrics], 'loss.png')
             for i, name in enumerate(['ce_loss.png', 'kl_loss.png']):
                 plot_graph(list(zip(*train_metrics))[i], list(zip(*val_metrics))[i], name)
 
@@ -117,7 +117,7 @@ def train_step(model, data, optimizer, total_step):
 
     # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
     # Reference: https://github.com/pytorch/examples/blob/master/word_language_model/main.py
-    # torch.nn.utils.clip_grad_norm(model.parameters(), GRADIENT_CLIP)
+    # torch.nn.utils.clip_grad_norm_(param_copy, GRADIENT_CLIP)
     optimizer.step()
 
     # Copy the parameters back into the model

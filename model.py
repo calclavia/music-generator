@@ -12,8 +12,8 @@ class DeepJ(nn.Module):
         self.input_size = input_size
         self.latent_size = latent_size
         self.embd = nn.Embedding(NUM_ACTIONS, input_size)
-        self.encoder = EncoderRNN(input_size, encoder_size, latent_size, 4)
-        self.decoder = DecoderRNN(self.embd, input_size, latent_size, decoder_size, NUM_ACTIONS, 4)
+        self.encoder = EncoderRNN(input_size, encoder_size, latent_size, 3)
+        self.decoder = DecoderRNN(self.embd, input_size, latent_size, decoder_size, NUM_ACTIONS, 3)
 
     def forward(self, x, hidden=None):
         batch_size = x.size(0)
@@ -72,8 +72,6 @@ class DecoderRNN(nn.Module):
         self.decoder = nn.Linear(hidden_size, output_size)
         self.decoder.weight = embd.weight
 
-        self.dropout = nn.Dropout(0.5)
-
     def forward(self, x, latent=None, hidden=None):
         assert (latent is None and hidden is not None) or (hidden is None and latent is not None)
         # Project the latent vector to a size consumable by the GRU's memory
@@ -82,9 +80,6 @@ class DecoderRNN(nn.Module):
             latent = latent.view(-1, self.num_layers, self.hidden_size)
             latent = latent.permute(1, 0, 2).contiguous()
             hidden = latent
-
-        # Auto-regressive input dropout to encourage the use of global hidden state.
-        x = self.dropout(x)
 
         x, hidden = self.rnn(x, hidden)
         x = self.decoder(x)
