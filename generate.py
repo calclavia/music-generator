@@ -1,5 +1,6 @@
 import numpy as np
 import argparse
+import csv
 
 import torch
 import torch.nn as nn
@@ -20,7 +21,7 @@ class MusicGenerator():
     def __init__(self, model):
         self.model = model
 
-    def generate(self, seq_len, encode_seq=None, temperature=0, show_progress=True):
+    def generate(self, seq_len, encode_seq=None, temperature=0, latent=None, show_progress=True):
         self.model.eval()
         r = trange(seq_len) if show_progress else range(seq_len)
 
@@ -34,6 +35,10 @@ class MusicGenerator():
         else:
             # Sample latent vector
             z = torch.randn(1, self.model.latent_size)
+
+        if latent is not None:
+            # Use provided custom latent vector
+            z = latent.unsqueeze(0)
         memory = None
         # Generate starting first token. Input for decoder.
         x = torch.LongTensor([[0]])
@@ -68,6 +73,7 @@ def main():
     parser.add_argument('--synth', default=False, action='store_true', help='Synthesize output in MP3')
     parser.add_argument('--encode', default=None, type=str, help='Forces the latent vector to encode a sequence')
     parser.add_argument('--temperature', default=0, type=float, help='Temperature of generation. 0 temperature = deterministic')
+    parser.add_argument('--latent', default=None, help='Path to custom latent vector file')
     args = parser.parse_args()
     
     print('=== Loading Model ===')
@@ -87,12 +93,21 @@ def main():
         encode_seq = load_midi(args.encode)
         encode_seq = torch.from_numpy(encode_seq).long()
 
+    latent = None
+    if args.latent:
+        print('Loading custom latent vector...')
+        with open(args.latent) as tsvfile:
+            reader = csv.reader(tsvfile, delimiter='\t')
+            for row in reader:
+                latent = np.array([float(x) for x in row])
+                latent = torch.from_numpy(latent).float()
+
     print('=== Generating ===')
 
     fname = args.fname
     print('File: {}'.format(fname))
     generator = MusicGenerator(model)
-    seq = generator.generate(args.length, encode_seq, args.temperature)
+    seq = generator.generate(args.length, encode_seq, args.temperature, latent)
     save_midi(fname, seq)
 
     if args.synth:
